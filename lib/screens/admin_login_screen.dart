@@ -14,17 +14,12 @@ class AdminLoginScreen extends StatefulWidget {
 }
 
 class _AdminLoginScreenState extends State<AdminLoginScreen> {
-  /// key สำหรับฟอร์ม / Form key for admin login
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
-
-  /// controller ชื่อผู้ใช้ / Admin username controller
   final TextEditingController _usernameController = TextEditingController();
-
-  /// controller รหัสผ่าน / Admin password controller
   final TextEditingController _passwordController = TextEditingController();
 
-  /// สถานะกำลังล็อกอิน / Loading indicator state
   bool _isSubmitting = false;
+  bool _obscurePassword = true;
 
   @override
   void dispose() {
@@ -33,23 +28,24 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
     super.dispose();
   }
 
-  /// ประมวลผลการล็อกอิน / Handle admin login action
   Future<void> _handleLogin() async {
-    if (!_formKey.currentState!.validate()) {
-      return;
-    }
+    if (!_formKey.currentState!.validate()) return;
+
     setState(() => _isSubmitting = true);
-    final AuthProvider authProvider = context.read<AuthProvider>();
+    final authProvider = context.read<AuthProvider>();
     final String? error = await authProvider.loginAdmin(
       username: _usernameController.text.trim(),
       password: _passwordController.text.trim(),
     );
     setState(() => _isSubmitting = false);
+
     if (!mounted) return;
+
     if (error != null) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
       return;
     }
+
     Navigator.pushReplacementNamed(
       context,
       '/login-success',
@@ -65,53 +61,103 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('ล็อกอินแอดมิน / Admin Login'),
+        centerTitle: true,
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              TextFormField(
-                controller: _usernameController,
-                decoration: const InputDecoration(
-                  labelText: 'ชื่อผู้ใช้ / Username',
-                  border: OutlineInputBorder(),
+      body: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: Card(
+            elevation: 6,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // โลโก้
+                    Image.asset(
+                      'assets/images/logo.png',
+                      height: 100,
+                    ),
+                    const SizedBox(height: 24),
+
+                    // Username
+                    TextFormField(
+                      controller: _usernameController,
+                      decoration: const InputDecoration(
+                        labelText: 'ชื่อผู้ใช้ / Username',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.person),
+                      ),
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'กรุณากรอกชื่อผู้ใช้ / Please enter username';
+                        }
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Password
+                    TextFormField(
+                      controller: _passwordController,
+                      decoration: InputDecoration(
+                        labelText: 'รหัสผ่าน / Password',
+                        border: const OutlineInputBorder(),
+                        prefixIcon: const Icon(Icons.lock),
+                        suffixIcon: IconButton(
+                          icon: Icon(
+                            _obscurePassword
+                                ? Icons.visibility_off
+                                : Icons.visibility,
+                          ),
+                          onPressed: () {
+                            setState(() {
+                              _obscurePassword = !_obscurePassword;
+                            });
+                          },
+                        ),
+                      ),
+                      obscureText: _obscurePassword,
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'กรุณากรอกรหัสผ่าน / Please enter password';
+                        }
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 24),
+
+                    // Login button
+                    PrimaryButton(
+                      label: _isSubmitting
+                          ? 'กำลังเข้าสู่ระบบ... / Signing in...'
+                          : 'เข้าสู่ระบบ / Sign in',
+                      onPressed: _isSubmitting ? null : _handleLogin,
+                    ),
+
+                    if (_isSubmitting) ...[
+                      const SizedBox(height: 16),
+                      Center(
+                        child: CircularProgressIndicator(
+                          color: theme.colorScheme.primary,
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
-                validator: (String? value) {
-                  if (value == null || value.isEmpty) {
-                    return 'กรุณากรอกชื่อผู้ใช้ / Please enter username';
-                  }
-                  return null;
-                },
               ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _passwordController,
-                decoration: const InputDecoration(
-                  labelText: 'รหัสผ่าน / Password',
-                  border: OutlineInputBorder(),
-                ),
-                obscureText: true,
-                validator: (String? value) {
-                  if (value == null || value.isEmpty) {
-                    return 'กรุณากรอกรหัสผ่าน / Please enter password';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 24),
-              PrimaryButton(
-                label: _isSubmitting
-                    ? 'กำลังเข้าสู่ระบบ... / Signing in...'
-                    : 'เข้าสู่ระบบ / Sign in',
-                onPressed: _isSubmitting ? null : _handleLogin,
-              ),
-            ],
+            ),
           ),
         ),
       ),

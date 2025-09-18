@@ -13,29 +13,17 @@ class RegisterTutorScreen extends StatefulWidget {
 }
 
 class _RegisterTutorScreenState extends State<RegisterTutorScreen> {
-  /// key สำหรับฟอร์ม / Global key to manage the form
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
 
-  /// controller ชื่อ / Controller for tutor name
   final TextEditingController _nameController = TextEditingController();
-
-  /// controller ชื่อเล่น / Controller for tutor nickname
   final TextEditingController _nicknameController = TextEditingController();
-
-  /// controller อายุ / Controller for tutor age
   final TextEditingController _ageController = TextEditingController();
-
-  /// controller ไอดีไลน์ / Controller for tutor Line ID
   final TextEditingController _lineIdController = TextEditingController();
-
-  /// controller อีเมล / Controller for tutor email
   final TextEditingController _emailController = TextEditingController();
-
-  /// controller รหัสผ่าน / Controller for tutor password
   final TextEditingController _passwordController = TextEditingController();
 
-  /// สถานะกำลังบันทึก / Flag to show saving progress
   bool _isSubmitting = false;
+  bool _obscurePassword = true;
 
   @override
   void dispose() {
@@ -48,14 +36,13 @@ class _RegisterTutorScreenState extends State<RegisterTutorScreen> {
     super.dispose();
   }
 
-  /// จัดการขั้นตอนการสมัคร / Handle registration process
   Future<void> _handleRegister() async {
-    if (!_formKey.currentState!.validate()) {
-      return;
-    }
+    if (!_formKey.currentState!.validate()) return;
+
     setState(() => _isSubmitting = true);
-    final AuthProvider authProvider = context.read<AuthProvider>();
+    final authProvider = context.read<AuthProvider>();
     final int? age = int.tryParse(_ageController.text.trim());
+
     if (age == null) {
       setState(() => _isSubmitting = false);
       if (!mounted) return;
@@ -64,6 +51,7 @@ class _RegisterTutorScreenState extends State<RegisterTutorScreen> {
       );
       return;
     }
+
     final String? error = await authProvider.registerTutor(
       name: _nameController.text.trim(),
       nickname: _nicknameController.text.trim(),
@@ -72,12 +60,16 @@ class _RegisterTutorScreenState extends State<RegisterTutorScreen> {
       email: _emailController.text.trim(),
       password: _passwordController.text.trim(),
     );
+
     setState(() => _isSubmitting = false);
+
     if (!mounted) return;
+
     if (error != null) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
       return;
     }
+
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('สมัครสำเร็จ / Registration completed')),
     );
@@ -86,122 +78,164 @@ class _RegisterTutorScreenState extends State<RegisterTutorScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('สมัครติวเตอร์ / Register Tutor'),
+        centerTitle: true,
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Form(
-          key: _formKey,
-          child: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                TextFormField(
-                  controller: _nameController,
-                  decoration: const InputDecoration(
-                    labelText: 'ชื่อ-สกุล / Full name',
-                    border: OutlineInputBorder(),
-                  ),
-                  validator: (String? value) {
-                    if (value == null || value.isEmpty) {
-                      return 'กรุณากรอกชื่อ / Please enter name';
-                    }
-                    return null;
-                  },
+      body: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: Card(
+            elevation: 6,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // โลโก้
+                    Image.asset(
+                      'assets/images/logo.png',
+                      height: 100,
+                    ),
+                    const SizedBox(height: 24),
+
+                    // Name
+                    TextFormField(
+                      controller: _nameController,
+                      decoration: const InputDecoration(
+                        labelText: 'ชื่อ-สกุล / Full name',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.person),
+                      ),
+                      validator: (value) =>
+                          value == null || value.isEmpty ? 'กรุณากรอกชื่อ / Please enter name' : null,
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Nickname
+                    TextFormField(
+                      controller: _nicknameController,
+                      decoration: const InputDecoration(
+                        labelText: 'ชื่อเล่น / Nickname',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.badge),
+                      ),
+                      validator: (value) =>
+                          value == null || value.isEmpty ? 'กรุณากรอกชื่อเล่น / Please enter nickname' : null,
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Age
+                    TextFormField(
+                      controller: _ageController,
+                      decoration: const InputDecoration(
+                        labelText: 'อายุ / Age',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.cake),
+                      ),
+                      keyboardType: TextInputType.number,
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'กรุณากรอกอายุ / Please enter age';
+                        }
+                        final int? age = int.tryParse(value);
+                        if (age == null || age <= 0) {
+                          return 'กรอกอายุเป็นตัวเลขมากกว่า 0 / Age must be positive';
+                        }
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Line ID
+                    TextFormField(
+                      controller: _lineIdController,
+                      decoration: const InputDecoration(
+                        labelText: 'ไอดีไลน์ / Line ID',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.chat),
+                      ),
+                      validator: (value) =>
+                          value == null || value.isEmpty ? 'กรุณากรอกไอดีไลน์ / Please enter Line ID' : null,
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Email
+                    TextFormField(
+                      controller: _emailController,
+                      decoration: const InputDecoration(
+                        labelText: 'อีเมล / Email',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.email),
+                      ),
+                      keyboardType: TextInputType.emailAddress,
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'กรุณากรอกอีเมล / Please enter email';
+                        }
+                        if (!value.contains('@')) {
+                          return 'รูปแบบอีเมลไม่ถูกต้อง / Invalid email format';
+                        }
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Password
+                    TextFormField(
+                      controller: _passwordController,
+                      decoration: InputDecoration(
+                        labelText: 'รหัสผ่าน / Password',
+                        border: const OutlineInputBorder(),
+                        prefixIcon: const Icon(Icons.lock),
+                        suffixIcon: IconButton(
+                          icon: Icon(
+                            _obscurePassword ? Icons.visibility_off : Icons.visibility,
+                          ),
+                          onPressed: () {
+                            setState(() => _obscurePassword = !_obscurePassword);
+                          },
+                        ),
+                      ),
+                      obscureText: _obscurePassword,
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'กรุณากรอกรหัสผ่าน / Please enter password';
+                        }
+                        if (value.length < 6) {
+                          return 'อย่างน้อย 6 ตัวอักษร / Minimum 6 characters';
+                        }
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 24),
+
+                    // Register button
+                    PrimaryButton(
+                      label: _isSubmitting ? 'กำลังบันทึก... / Saving...' : 'สมัครสมาชิก / Register',
+                      onPressed: _isSubmitting ? null : _handleRegister,
+                    ),
+
+                    if (_isSubmitting) ...[
+                      const SizedBox(height: 16),
+                      Center(
+                        child: CircularProgressIndicator(
+                          color: theme.colorScheme.primary,
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: _nicknameController,
-                  decoration: const InputDecoration(
-                    labelText: 'ชื่อเล่น / Nickname',
-                    border: OutlineInputBorder(),
-                  ),
-                  validator: (String? value) {
-                    if (value == null || value.isEmpty) {
-                      return 'กรุณากรอกชื่อเล่น / Please enter nickname';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: _ageController,
-                  decoration: const InputDecoration(
-                    labelText: 'อายุ / Age',
-                    border: OutlineInputBorder(),
-                  ),
-                  keyboardType: TextInputType.number,
-                  validator: (String? value) {
-                    if (value == null || value.isEmpty) {
-                      return 'กรุณากรอกอายุ / Please enter age';
-                    }
-                    final int? age = int.tryParse(value);
-                    if (age == null || age <= 0) {
-                      return 'กรอกอายุเป็นตัวเลขมากกว่า 0 / Age must be positive';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: _lineIdController,
-                  decoration: const InputDecoration(
-                    labelText: 'ไอดีไลน์ / Line ID',
-                    border: OutlineInputBorder(),
-                  ),
-                  validator: (String? value) {
-                    if (value == null || value.isEmpty) {
-                      return 'กรุณากรอกไอดีไลน์ / Please enter Line ID';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: _emailController,
-                  decoration: const InputDecoration(
-                    labelText: 'อีเมล / Email',
-                    border: OutlineInputBorder(),
-                  ),
-                  keyboardType: TextInputType.emailAddress,
-                  validator: (String? value) {
-                    if (value == null || value.isEmpty) {
-                      return 'กรุณากรอกอีเมล / Please enter email';
-                    }
-                    if (!value.contains('@')) {
-                      return 'รูปแบบอีเมลไม่ถูกต้อง / Invalid email format';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: _passwordController,
-                  decoration: const InputDecoration(
-                    labelText: 'รหัสผ่าน / Password',
-                    border: OutlineInputBorder(),
-                  ),
-                  obscureText: true,
-                  validator: (String? value) {
-                    if (value == null || value.isEmpty) {
-                      return 'กรุณากรอกรหัสผ่าน / Please enter password';
-                    }
-                    if (value.length < 6) {
-                      return 'อย่างน้อย 6 ตัวอักษร / Minimum 6 characters';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 24),
-                PrimaryButton(
-                  label: _isSubmitting
-                      ? 'กำลังบันทึก... / Saving...'
-                      : 'สมัครสมาชิก / Register',
-                  onPressed: _isSubmitting ? null : _handleRegister,
-                ),
-              ],
+              ),
             ),
           ),
         ),
