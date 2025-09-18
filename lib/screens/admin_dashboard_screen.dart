@@ -64,13 +64,16 @@ class AdminDashboardScreen extends StatelessWidget {
                 elevation: 2,
                 child: ListTile(
                   title: Text(tutor.name),
-                  subtitle: Text(tutor.email),
+                  subtitle: Text(
+                    'ชื่อเล่น: ${tutor.nickname} | อายุ: ${tutor.age}\nอีเมล: ${tutor.email}\nไอดีไลน์: ${tutor.lineId}',
+                  ),
                   leading: CircleAvatar(
                     child: Text(
                       tutor.name.isNotEmpty ? tutor.name.characters.first : '?',
                     ),
                   ),
                   trailing: const Icon(Icons.verified_user),
+                  isThreeLine: true,
                 ),
               );
             },
