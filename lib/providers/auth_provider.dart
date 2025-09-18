@@ -24,6 +24,18 @@ class Tutor {
   /// รหัสผ่านแบบ plaintext (ตัวอย่างเท่านั้น) / Plaintext password (for demo only)
   final String password;
 
+  /// สถานะของติวเตอร์ / Tutor current status
+  final String status;
+
+  /// สถานะมาตรฐานที่ใช้เป็นค่าเริ่มต้น / Default tutor status label
+  static const String defaultStatus = 'เป็นครูอยู่';
+
+  /// รายการสถานะที่รองรับ / Supported tutor status options
+  static const List<String> statuses = <String>[
+    defaultStatus,
+    'พักการสอน',
+  ];
+
   const Tutor({
     required this.name,
     required this.nickname,
@@ -31,13 +43,15 @@ class Tutor {
     required this.lineId,
     required this.email,
     required this.password,
+    required this.status,
   });
 
   /// แปลงเป็นข้อความบันทึก / Convert data into a readable storage line
   String toStorageLine() {
     String sanitize(String value) => value.replaceAll('\n', ' ').replaceAll('|', '/');
     return 'ชื่อจริง: ${sanitize(name)} | ชื่อเล่น: ${sanitize(nickname)} | อายุ: $age | '
-        'ไอดีไลน์: ${sanitize(lineId)} | อีเมล: ${sanitize(email)} | รหัสผ่าน: ${sanitize(password)}';
+        'ไอดีไลน์: ${sanitize(lineId)} | อีเมล: ${sanitize(email)} | รหัสผ่าน: ${sanitize(password)} | '
+        'สถานะ: ${sanitize(status)}';
   }
 
   /// สร้าง Tutor จากบรรทัดข้อความ / Create a Tutor from a storage line
@@ -75,6 +89,7 @@ class Tutor {
     final String? lineId = findValue('ไอดีไลน์');
     final String? email = findValue('อีเมล');
     final String? password = findValue('รหัสผ่าน');
+    final String status = findValue('สถานะ') ?? defaultStatus;
     if (name == null || nickname == null || ageText == null || lineId == null || email == null || password == null) {
       return null;
     }
@@ -89,6 +104,28 @@ class Tutor {
       lineId: lineId,
       email: email,
       password: password,
+      status: status,
+    );
+  }
+
+  /// สร้างอ็อบเจ็กต์ใหม่โดยคงค่าเดิม / Copy with new field values
+  Tutor copyWith({
+    String? name,
+    String? nickname,
+    int? age,
+    String? lineId,
+    String? email,
+    String? password,
+    String? status,
+  }) {
+    return Tutor(
+      name: name ?? this.name,
+      nickname: nickname ?? this.nickname,
+      age: age ?? this.age,
+      lineId: lineId ?? this.lineId,
+      email: email ?? this.email,
+      password: password ?? this.password,
+      status: status ?? this.status,
     );
   }
 }
@@ -191,6 +228,7 @@ class AuthProvider extends ChangeNotifier {
       ..writeln('# วิธีดูข้อมูลที่จัดเก็บไว้: เปิดไฟล์นี้ด้วยแอปจัดการไฟล์หรือเทอร์มินัล')
       ..writeln('# ที่อยู่ไฟล์: $normalizedPath')
       ..writeln('# ตัวอย่างคำสั่ง: cat "$normalizedPath"')
+      ..writeln('# ฟอร์แมตข้อมูล: ชื่อจริง | ชื่อเล่น | อายุ | ไอดีไลน์ | อีเมล | รหัสผ่าน | สถานะ')
       ..writeln();
     for (final Tutor tutor in tutors) {
       buffer.writeln(tutor.toStorageLine());
@@ -219,6 +257,7 @@ class AuthProvider extends ChangeNotifier {
       lineId: lineId,
       email: email,
       password: password,
+      status: Tutor.defaultStatus,
     );
     _tutors.add(tutor);
     await _saveTutors();
@@ -275,5 +314,46 @@ class AuthProvider extends ChangeNotifier {
     _currentTutor = null;
     _isAdminLoggedIn = false;
     notifyListeners();
+  }
+
+  /// อัปเดตข้อมูลติวเตอร์ / Update tutor information
+  Future<String?> updateTutor({
+    required String originalEmail,
+    required Tutor updatedTutor,
+  }) async {
+    final int index = _tutors.indexWhere(
+      (Tutor tutor) => tutor.email.toLowerCase() == originalEmail.toLowerCase(),
+    );
+    if (index == -1) {
+      return 'ไม่พบผู้ใช้ / Tutor not found';
+    }
+    final String newEmail = updatedTutor.email.trim();
+    final bool isEmailChanged = newEmail.toLowerCase() != originalEmail.toLowerCase();
+    if (isEmailChanged) {
+      final bool emailExists = _tutors.any(
+        (Tutor tutor) => tutor.email.toLowerCase() == newEmail.toLowerCase(),
+      );
+      if (emailExists) {
+        return 'อีเมลนี้ถูกใช้แล้ว / Email already registered';
+      }
+    }
+    _tutors[index] = updatedTutor;
+    await _saveTutors();
+    notifyListeners();
+    return null;
+  }
+
+  /// ลบข้อมูลติวเตอร์ออกจากระบบ / Delete tutor from storage
+  Future<bool> deleteTutor(String email) async {
+    final int index = _tutors.indexWhere(
+      (Tutor tutor) => tutor.email.toLowerCase() == email.toLowerCase(),
+    );
+    if (index == -1) {
+      return false;
+    }
+    _tutors.removeAt(index);
+    await _saveTutors();
+    notifyListeners();
+    return true;
   }
 }
