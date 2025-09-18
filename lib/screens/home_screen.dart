@@ -10,7 +10,7 @@ class HomeScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('ศูนย์รวมติวเตอร์ / Tutor Hub'),
+        title: const Text('บ้านครูเล็ก'),
       ),
       body: Padding(
         padding: const EdgeInsets.all(24),
