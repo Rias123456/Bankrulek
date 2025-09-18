@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../providers/auth_provider.dart';
 import '../widgets/primary_button.dart';
+import 'login_success_screen.dart';
 
 /// หน้าล็อกอินสำหรับติวเตอร์ / Tutor login screen
 class TutorLoginScreen extends StatefulWidget {
@@ -51,10 +52,14 @@ class _TutorLoginScreenState extends State<TutorLoginScreen> {
       );
       return;
     }
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('ล็อกอินสำเร็จ / Login successful')),
+    Navigator.pushReplacementNamed(
+      context,
+      '/login-success',
+      arguments: const LoginSuccessArgs(
+        title: 'ล็อกอินสำเร็จ / Login successful',
+        message: 'ยินดีต้อนรับกลับ! คุณสามารถกลับหน้าหลักได้จากปุ่มด้านล่าง / Welcome back! Use the button below to return home.',
+      ),
     );
-    Navigator.pop(context);
   }
 
   @override

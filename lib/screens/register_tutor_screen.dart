@@ -19,6 +19,15 @@ class _RegisterTutorScreenState extends State<RegisterTutorScreen> {
   /// controller ชื่อ / Controller for tutor name
   final TextEditingController _nameController = TextEditingController();
 
+  /// controller ชื่อเล่น / Controller for tutor nickname
+  final TextEditingController _nicknameController = TextEditingController();
+
+  /// controller อายุ / Controller for tutor age
+  final TextEditingController _ageController = TextEditingController();
+
+  /// controller ไอดีไลน์ / Controller for tutor Line ID
+  final TextEditingController _lineIdController = TextEditingController();
+
   /// controller อีเมล / Controller for tutor email
   final TextEditingController _emailController = TextEditingController();
 
@@ -31,6 +40,9 @@ class _RegisterTutorScreenState extends State<RegisterTutorScreen> {
   @override
   void dispose() {
     _nameController.dispose();
+    _nicknameController.dispose();
+    _ageController.dispose();
+    _lineIdController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
     super.dispose();
@@ -43,8 +55,20 @@ class _RegisterTutorScreenState extends State<RegisterTutorScreen> {
     }
     setState(() => _isSubmitting = true);
     final AuthProvider authProvider = context.read<AuthProvider>();
+    final int? age = int.tryParse(_ageController.text.trim());
+    if (age == null) {
+      setState(() => _isSubmitting = false);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('รูปแบบอายุไม่ถูกต้อง / Invalid age format')),
+      );
+      return;
+    }
     final String? error = await authProvider.registerTutor(
       name: _nameController.text.trim(),
+      nickname: _nicknameController.text.trim(),
+      age: age,
+      lineId: _lineIdController.text.trim(),
       email: _emailController.text.trim(),
       password: _passwordController.text.trim(),
     );
@@ -83,6 +107,53 @@ class _RegisterTutorScreenState extends State<RegisterTutorScreen> {
                   validator: (String? value) {
                     if (value == null || value.isEmpty) {
                       return 'กรุณากรอกชื่อ / Please enter name';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: _nicknameController,
+                  decoration: const InputDecoration(
+                    labelText: 'ชื่อเล่น / Nickname',
+                    border: OutlineInputBorder(),
+                  ),
+                  validator: (String? value) {
+                    if (value == null || value.isEmpty) {
+                      return 'กรุณากรอกชื่อเล่น / Please enter nickname';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: _ageController,
+                  decoration: const InputDecoration(
+                    labelText: 'อายุ / Age',
+                    border: OutlineInputBorder(),
+                  ),
+                  keyboardType: TextInputType.number,
+                  validator: (String? value) {
+                    if (value == null || value.isEmpty) {
+                      return 'กรุณากรอกอายุ / Please enter age';
+                    }
+                    final int? age = int.tryParse(value);
+                    if (age == null || age <= 0) {
+                      return 'กรอกอายุเป็นตัวเลขมากกว่า 0 / Age must be positive';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: _lineIdController,
+                  decoration: const InputDecoration(
+                    labelText: 'ไอดีไลน์ / Line ID',
+                    border: OutlineInputBorder(),
+                  ),
+                  validator: (String? value) {
+                    if (value == null || value.isEmpty) {
+                      return 'กรุณากรอกไอดีไลน์ / Please enter Line ID';
                     }
                     return null;
                   },

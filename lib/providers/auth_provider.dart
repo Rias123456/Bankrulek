@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -10,31 +9,125 @@ class Tutor {
   /// ชื่อเต็มของติวเตอร์ / Tutor full name
   final String name;
 
+  /// ชื่อเล่น / Nickname
+  final String nickname;
+
+  /// อายุ / Age
+  final int age;
+
+  /// ไอดีไลน์ / Line ID
+  final String lineId;
+
   /// อีเมลสำหรับล็อกอิน / Login email
   final String email;
 
   /// รหัสผ่านแบบ plaintext (ตัวอย่างเท่านั้น) / Plaintext password (for demo only)
   final String password;
 
+  /// สถานะของติวเตอร์ / Tutor current status
+  final String status;
+
+  /// สถานะมาตรฐานที่ใช้เป็นค่าเริ่มต้น / Default tutor status label
+  static const String defaultStatus = 'เป็นครูอยู่';
+
+  /// รายการสถานะที่รองรับ / Supported tutor status options
+  static const List<String> statuses = <String>[
+    defaultStatus,
+    'พักการสอน',
+  ];
+
   const Tutor({
     required this.name,
+    required this.nickname,
+    required this.age,
+    required this.lineId,
     required this.email,
     required this.password,
+    required this.status,
   });
 
-  /// แปลงข้อมูลเป็น JSON / Convert to JSON map
-  Map<String, dynamic> toJson() => {
-        'name': name,
-        'email': email,
-        'password': password,
-      };
+  /// แปลงเป็นข้อความบันทึก / Convert data into a readable storage line
+  String toStorageLine() {
+    String sanitize(String value) => value.replaceAll('\n', ' ').replaceAll('|', '/');
+    return 'ชื่อจริง: ${sanitize(name)} | ชื่อเล่น: ${sanitize(nickname)} | อายุ: $age | '
+        'ไอดีไลน์: ${sanitize(lineId)} | อีเมล: ${sanitize(email)} | รหัสผ่าน: ${sanitize(password)} | '
+        'สถานะ: ${sanitize(status)}';
+  }
 
-  /// สร้าง Tutor จาก JSON / Factory constructor from JSON map
-  factory Tutor.fromJson(Map<String, dynamic> json) => Tutor(
-        name: json['name'] as String? ?? '',
-        email: json['email'] as String? ?? '',
-        password: json['password'] as String? ?? '',
-      );
+  /// สร้าง Tutor จากบรรทัดข้อความ / Create a Tutor from a storage line
+  static Tutor? fromStorageLine(String line) {
+    final String trimmed = line.trim();
+    if (trimmed.isEmpty) {
+      return null;
+    }
+    final List<String> parts =
+        trimmed.split('|').map((String part) => part.trim()).where((String part) => part.isNotEmpty).toList();
+    if (parts.length < 6) {
+      return null;
+    }
+
+    String? findValue(String label) {
+      try {
+        final String match =
+            parts.firstWhere((String part) => part.startsWith('$label:'), orElse: () => '');
+        if (match.isEmpty) {
+          return null;
+        }
+        final int colonIndex = match.indexOf(':');
+        if (colonIndex == -1) {
+          return null;
+        }
+        return match.substring(colonIndex + 1).trim();
+      } catch (_) {
+        return null;
+      }
+    }
+
+    final String? name = findValue('ชื่อจริง');
+    final String? nickname = findValue('ชื่อเล่น');
+    final String? ageText = findValue('อายุ');
+    final String? lineId = findValue('ไอดีไลน์');
+    final String? email = findValue('อีเมล');
+    final String? password = findValue('รหัสผ่าน');
+    final String status = findValue('สถานะ') ?? defaultStatus;
+    if (name == null || nickname == null || ageText == null || lineId == null || email == null || password == null) {
+      return null;
+    }
+    final int? age = int.tryParse(ageText);
+    if (age == null) {
+      return null;
+    }
+    return Tutor(
+      name: name,
+      nickname: nickname,
+      age: age,
+      lineId: lineId,
+      email: email,
+      password: password,
+      status: status,
+    );
+  }
+
+  /// สร้างอ็อบเจ็กต์ใหม่โดยคงค่าเดิม / Copy with new field values
+  Tutor copyWith({
+    String? name,
+    String? nickname,
+    int? age,
+    String? lineId,
+    String? email,
+    String? password,
+    String? status,
+  }) {
+    return Tutor(
+      name: name ?? this.name,
+      nickname: nickname ?? this.nickname,
+      age: age ?? this.age,
+      lineId: lineId ?? this.lineId,
+      email: email ?? this.email,
+      password: password ?? this.password,
+      status: status ?? this.status,
+    );
+  }
 }
 
 /// ตัวจัดการสถานะการยืนยันตัวตน / Authentication state manager
@@ -52,7 +145,7 @@ class AuthProvider extends ChangeNotifier {
   bool _isLoading = true;
 
   /// ข้อมูล credential ของแอดมินตัวอย่าง / Sample admin credential
-  static const String _adminEmail = 'admin@bankrulek.com';
+  static const String _adminUsername = 'admin1234';
   static const String _adminPassword = 'admin1234';
 
   /// สร้าง provider และโหลดข้อมูล / Constructor triggers loading data
@@ -88,41 +181,25 @@ class AuthProvider extends ChangeNotifier {
     final File file = File('${dir.path}/data.txt');
     if (!await file.exists()) {
       await file.create(recursive: true);
-      await file.writeAsString('[]');
+      await file.writeAsString(_generateFileContent(_tutors, file.path));
     }
     return file;
   }
 
-  /// โหลดรายชื่อติวเตอร์จากไฟล์ / Load tutors from JSON file
+  /// โหลดรายชื่อติวเตอร์จากไฟล์ / Load tutors from text file
   Future<void> _loadTutors() async {
     _isLoading = true;
     notifyListeners();
     try {
       final File file = await _dataFile;
-      final String contents = await file.readAsString();
-      final List<dynamic> data = jsonDecode(contents) as List<dynamic>;
+      final List<String> lines = await file.readAsLines();
       _tutors
         ..clear()
         ..addAll(
-          data
-              .map<Tutor?>(
-                (dynamic item) {
-                  if (item is Map<String, dynamic>) {
-                    return Tutor.fromJson(item);
-                  }
-                  if (item is Map) {
-                    return Tutor.fromJson(
-                      item.map(
-                        (dynamic key, dynamic value) => MapEntry(
-                          key.toString(),
-                          value,
-                        ),
-                      ),
-                    );
-                  }
-                  return null;
-                },
-              )
+          lines
+              .map((String line) => line.trim())
+              .where((String line) => line.isNotEmpty && !line.startsWith('#'))
+              .map<Tutor?>((String line) => Tutor.fromStorageLine(line))
               .whereType<Tutor>(),
         );
     } catch (e) {
@@ -133,22 +210,38 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
-  /// บันทึกรายชื่อติวเตอร์ลงไฟล์ / Persist tutors into JSON file
+  /// บันทึกรายชื่อติวเตอร์ลงไฟล์ / Persist tutors into text file
   Future<void> _saveTutors() async {
     try {
       final File file = await _dataFile;
-      final String jsonArray = jsonEncode(
-        _tutors.map((Tutor tutor) => tutor.toJson()).toList(),
-      );
-      await file.writeAsString(jsonArray);
+      final String content = _generateFileContent(_tutors, file.path);
+      await file.writeAsString(content);
     } catch (e) {
       debugPrint('Failed to save tutors: $e');
     }
   }
 
+  /// สร้างข้อความสำหรับบันทึกไฟล์ / Build file content with header instructions
+  String _generateFileContent(List<Tutor> tutors, String filePath) {
+    final String normalizedPath = filePath.replaceAll('\\', '/');
+    final StringBuffer buffer = StringBuffer()
+      ..writeln('# วิธีดูข้อมูลที่จัดเก็บไว้: เปิดไฟล์นี้ด้วยแอปจัดการไฟล์หรือเทอร์มินัล')
+      ..writeln('# ที่อยู่ไฟล์: $normalizedPath')
+      ..writeln('# ตัวอย่างคำสั่ง: cat "$normalizedPath"')
+      ..writeln('# ฟอร์แมตข้อมูล: ชื่อจริง | ชื่อเล่น | อายุ | ไอดีไลน์ | อีเมล | รหัสผ่าน | สถานะ')
+      ..writeln();
+    for (final Tutor tutor in tutors) {
+      buffer.writeln(tutor.toStorageLine());
+    }
+    return buffer.toString();
+  }
+
   /// สมัครสมาชิกติวเตอร์ / Register new tutor
   Future<String?> registerTutor({
     required String name,
+    required String nickname,
+    required int age,
+    required String lineId,
     required String email,
     required String password,
   }) async {
@@ -157,7 +250,15 @@ class AuthProvider extends ChangeNotifier {
     if (alreadyExists) {
       return 'อีเมลนี้ถูกใช้แล้ว / Email already registered';
     }
-    final Tutor tutor = Tutor(name: name, email: email, password: password);
+    final Tutor tutor = Tutor(
+      name: name,
+      nickname: nickname,
+      age: age,
+      lineId: lineId,
+      email: email,
+      password: password,
+      status: Tutor.defaultStatus,
+    );
     _tutors.add(tutor);
     await _saveTutors();
     notifyListeners();
@@ -173,12 +274,16 @@ class AuthProvider extends ChangeNotifier {
       if (_isLoading) {
         await _loadTutors();
       }
-      final Tutor match = _tutors.firstWhere(
-        (Tutor tutor) =>
-            tutor.email.toLowerCase() == email.toLowerCase() && tutor.password == password,
-        orElse: () => const Tutor(name: '', email: '', password: ''),
-      );
-      if (match.email.isEmpty) {
+      Tutor? match;
+      try {
+        match = _tutors.firstWhere(
+          (Tutor tutor) =>
+              tutor.email.toLowerCase() == email.toLowerCase() && tutor.password == password,
+        );
+      } on StateError {
+        match = null;
+      }
+      if (match == null) {
         return 'ไม่พบผู้ใช้ / Invalid email or password';
       }
       _currentTutor = match;
@@ -192,10 +297,10 @@ class AuthProvider extends ChangeNotifier {
 
   /// ล็อกอินสำหรับแอดมิน / Admin login method
   Future<String?> loginAdmin({
-    required String email,
+    required String username,
     required String password,
   }) async {
-    if (email == _adminEmail && password == _adminPassword) {
+    if (username == _adminUsername && password == _adminPassword) {
       _isAdminLoggedIn = true;
       _currentTutor = null;
       notifyListeners();
@@ -209,5 +314,46 @@ class AuthProvider extends ChangeNotifier {
     _currentTutor = null;
     _isAdminLoggedIn = false;
     notifyListeners();
+  }
+
+  /// อัปเดตข้อมูลติวเตอร์ / Update tutor information
+  Future<String?> updateTutor({
+    required String originalEmail,
+    required Tutor updatedTutor,
+  }) async {
+    final int index = _tutors.indexWhere(
+      (Tutor tutor) => tutor.email.toLowerCase() == originalEmail.toLowerCase(),
+    );
+    if (index == -1) {
+      return 'ไม่พบผู้ใช้ / Tutor not found';
+    }
+    final String newEmail = updatedTutor.email.trim();
+    final bool isEmailChanged = newEmail.toLowerCase() != originalEmail.toLowerCase();
+    if (isEmailChanged) {
+      final bool emailExists = _tutors.any(
+        (Tutor tutor) => tutor.email.toLowerCase() == newEmail.toLowerCase(),
+      );
+      if (emailExists) {
+        return 'อีเมลนี้ถูกใช้แล้ว / Email already registered';
+      }
+    }
+    _tutors[index] = updatedTutor;
+    await _saveTutors();
+    notifyListeners();
+    return null;
+  }
+
+  /// ลบข้อมูลติวเตอร์ออกจากระบบ / Delete tutor from storage
+  Future<bool> deleteTutor(String email) async {
+    final int index = _tutors.indexWhere(
+      (Tutor tutor) => tutor.email.toLowerCase() == email.toLowerCase(),
+    );
+    if (index == -1) {
+      return false;
+    }
+    _tutors.removeAt(index);
+    await _saveTutors();
+    notifyListeners();
+    return true;
   }
 }
