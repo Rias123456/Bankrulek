@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../providers/auth_provider.dart';
 import '../widgets/primary_button.dart';
+import 'login_success_screen.dart';
 
 /// หน้าล็อกอินสำหรับผู้ดูแลระบบ / Admin login screen
 class AdminLoginScreen extends StatefulWidget {
@@ -16,8 +17,8 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
   /// key สำหรับฟอร์ม / Form key for admin login
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
 
-  /// controller อีเมล / Admin email controller
-  final TextEditingController _emailController = TextEditingController();
+  /// controller ชื่อผู้ใช้ / Admin username controller
+  final TextEditingController _usernameController = TextEditingController();
 
   /// controller รหัสผ่าน / Admin password controller
   final TextEditingController _passwordController = TextEditingController();
@@ -27,7 +28,7 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
 
   @override
   void dispose() {
-    _emailController.dispose();
+    _usernameController.dispose();
     _passwordController.dispose();
     super.dispose();
   }
@@ -40,7 +41,7 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
     setState(() => _isSubmitting = true);
     final AuthProvider authProvider = context.read<AuthProvider>();
     final String? error = await authProvider.loginAdmin(
-      email: _emailController.text.trim(),
+      username: _usernameController.text.trim(),
       password: _passwordController.text.trim(),
     );
     setState(() => _isSubmitting = false);
@@ -49,7 +50,17 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
       return;
     }
-    Navigator.pushReplacementNamed(context, '/admin-dashboard');
+    Navigator.pushReplacementNamed(
+      context,
+      '/login-success',
+      arguments: const LoginSuccessArgs(
+        title: 'ล็อกอินแอดมินสำเร็จ / Admin login successful',
+        message:
+            'คุณสามารถเปิดแดชบอร์ดสำหรับจัดการข้อมูลได้ทันที / You can open the admin dashboard right away.',
+        actionLabel: 'เปิดแดชบอร์ดแอดมิน / Open admin dashboard',
+        actionRoute: '/admin-dashboard',
+      ),
+    );
   }
 
   @override
@@ -66,17 +77,14 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               TextFormField(
-                controller: _emailController,
+                controller: _usernameController,
                 decoration: const InputDecoration(
-                  labelText: 'อีเมล / Email',
+                  labelText: 'ชื่อผู้ใช้ / Username',
                   border: OutlineInputBorder(),
                 ),
                 validator: (String? value) {
                   if (value == null || value.isEmpty) {
-                    return 'กรุณากรอกอีเมล / Please enter email';
-                  }
-                  if (!value.contains('@')) {
-                    return 'รูปแบบอีเมลไม่ถูกต้อง / Invalid email';
+                    return 'กรุณากรอกชื่อผู้ใช้ / Please enter username';
                   }
                   return null;
                 },
