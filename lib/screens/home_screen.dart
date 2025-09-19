@@ -9,8 +9,7 @@ class HomeScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('บ้านครูเล็ก'),
-        centerTitle: true, // ทำให้ Title อยู่กลาง AppBar
+
       ),
       body: Center(
         child: SingleChildScrollView(
@@ -22,16 +21,11 @@ class HomeScreen extends StatelessWidget {
               // โลโก้ตรงกลาง
               Image.asset(
                 'assets/images/logo.png',
-                height: 120, // ปรับขนาดโลโก้
+                height: 150, // ปรับขนาดโลโก้
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 20),
 
-              const Text(
-                'เลือกการทำงานที่ต้องการ / Please choose an action',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 32),
+
 
               // ปุ่มทั้งหมดจัดตรงกลาง
               SizedBox(
@@ -40,19 +34,19 @@ class HomeScreen extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     PrimaryButton(
-                      label: 'ล็อกอินติวเตอร์ / Tutor Login',
+                      label: 'เข้าสู่ระบบติวเตอร์',
                       onPressed: () =>
                           Navigator.pushNamed(context, '/tutor-login'),
                     ),
                     const SizedBox(height: 16),
                     PrimaryButton(
-                      label: 'สมัครติวเตอร์ / Register Tutor',
+                      label: 'ลงทะเบียนติวเตอร์',
                       onPressed: () =>
                           Navigator.pushNamed(context, '/register-tutor'),
                     ),
                     const SizedBox(height: 16),
                     PrimaryButton(
-                      label: 'ล็อกอินแอดมิน / Admin Login',
+                      label: 'Admin Login',
                       onPressed: () =>
                           Navigator.pushNamed(context, '/admin-login'),
                     ),

@@ -129,7 +129,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                           final String password = passwordController.text.trim();
                           final int? age = int.tryParse(ageController.text.trim());
                           if (name.isEmpty || nickname.isEmpty || lineId.isEmpty || email.isEmpty || password.isEmpty) {
-                            ScaffoldMessenger.of(this.context).showSnackBar(
+                            ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(
                                 content: Text('กรุณากรอกข้อมูลให้ครบถ้วน / Please fill in all fields'),
                               ),
@@ -137,7 +137,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                             return;
                           }
                           if (age == null || age <= 0) {
-                            ScaffoldMessenger.of(this.context).showSnackBar(
+                            ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(
                                 content: Text('กรุณากรอกอายุให้ถูกต้อง / Invalid age'),
                               ),
@@ -145,7 +145,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                             return;
                           }
                           if (!email.contains('@')) {
-                            ScaffoldMessenger.of(this.context).showSnackBar(
+                            ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(
                                 content: Text('รูปแบบอีเมลไม่ถูกต้อง / Invalid email format'),
                               ),
@@ -153,7 +153,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                             return;
                           }
                           setDialogState(() => isSaving = true);
-                          final AuthProvider authProvider = this.context.read<AuthProvider>();
+                          final AuthProvider authProvider = context.read<AuthProvider>();
                           final Tutor updatedTutor = tutor.copyWith(
                             name: name,
                             nickname: nickname,
@@ -172,13 +172,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                           }
                           if (error != null) {
                             setDialogState(() => isSaving = false);
-                            ScaffoldMessenger.of(this.context).showSnackBar(
+                            ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(content: Text(error)),
                             );
                             return;
                           }
                           Navigator.of(dialogContext).pop();
-                          ScaffoldMessenger.of(this.context).showSnackBar(
+                          ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(content: Text('บันทึกข้อมูลสำเร็จ / Tutor updated')), 
                           );
                         },
@@ -229,13 +229,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                       ? null
                       : () async {
                           setDialogState(() => isDeleting = true);
-                          final bool success = await this.context.read<AuthProvider>().deleteTutor(tutor.email);
+                          final bool success = await context.read<AuthProvider>().deleteTutor(tutor.email);
                           if (!mounted) {
                             return;
                           }
                           if (!success) {
                             setDialogState(() => isDeleting = false);
-                            ScaffoldMessenger.of(this.context).showSnackBar(
+                            ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(content: Text('ลบไม่สำเร็จ / Unable to delete tutor')),
                             );
                             return;
