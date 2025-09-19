@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -13,9 +15,8 @@ class AdminDashboardScreen extends StatefulWidget {
 
 class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   Future<void> _showEditTutorDialog(Tutor tutor) async {
-    final TextEditingController nameController = TextEditingController(text: tutor.name);
     final TextEditingController nicknameController = TextEditingController(text: tutor.nickname);
-    final TextEditingController ageController = TextEditingController(text: tutor.age.toString());
+    final TextEditingController phoneController = TextEditingController(text: tutor.phoneNumber);
     final TextEditingController lineIdController = TextEditingController(text: tutor.lineId);
     final TextEditingController emailController = TextEditingController(text: tutor.email);
     final TextEditingController passwordController = TextEditingController(text: tutor.password);
@@ -39,14 +40,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     TextField(
-                      controller: nameController,
-                      decoration: const InputDecoration(
-                        labelText: 'ชื่อจริง / Full name',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
                       controller: nicknameController,
                       decoration: const InputDecoration(
                         labelText: 'ชื่อเล่น / Nickname',
@@ -55,12 +48,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     ),
                     const SizedBox(height: 12),
                     TextField(
-                      controller: ageController,
+                      controller: phoneController,
                       decoration: const InputDecoration(
-                        labelText: 'อายุ / Age',
+                        labelText: 'เบอร์โทร / Phone number',
                         border: OutlineInputBorder(),
                       ),
-                      keyboardType: TextInputType.number,
+                      keyboardType: TextInputType.phone,
                     ),
                     const SizedBox(height: 12),
                     TextField(
@@ -86,7 +79,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                         labelText: 'รหัสผ่าน / Password',
                         border: OutlineInputBorder(),
                       ),
-                      obscureText: true,
                     ),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
@@ -122,24 +114,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                   onPressed: isSaving
                       ? null
                       : () async {
-                          final String name = nameController.text.trim();
                           final String nickname = nicknameController.text.trim();
+                          final String phoneNumber = phoneController.text.trim();
                           final String lineId = lineIdController.text.trim();
                           final String email = emailController.text.trim();
                           final String password = passwordController.text.trim();
-                          final int? age = int.tryParse(ageController.text.trim());
-                          if (name.isEmpty || nickname.isEmpty || lineId.isEmpty || email.isEmpty || password.isEmpty) {
+                          if (nickname.isEmpty || phoneNumber.isEmpty || lineId.isEmpty || email.isEmpty || password.isEmpty) {
                             ScaffoldMessenger.of(this.context).showSnackBar(
                               const SnackBar(
                                 content: Text('กรุณากรอกข้อมูลให้ครบถ้วน / Please fill in all fields'),
-                              ),
-                            );
-                            return;
-                          }
-                          if (age == null || age <= 0) {
-                            ScaffoldMessenger.of(this.context).showSnackBar(
-                              const SnackBar(
-                                content: Text('กรุณากรอกอายุให้ถูกต้อง / Invalid age'),
                               ),
                             );
                             return;
@@ -155,9 +138,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                           setDialogState(() => isSaving = true);
                           final AuthProvider authProvider = this.context.read<AuthProvider>();
                           final Tutor updatedTutor = tutor.copyWith(
-                            name: name,
                             nickname: nickname,
-                            age: age,
+                            phoneNumber: phoneNumber,
                             lineId: lineId,
                             email: email,
                             password: password,
@@ -197,9 +179,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       },
     );
 
-    nameController.dispose();
     nicknameController.dispose();
-    ageController.dispose();
+    phoneController.dispose();
     lineIdController.dispose();
     emailController.dispose();
     passwordController.dispose();
@@ -214,7 +195,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           builder: (BuildContext dialogContext, StateSetter setDialogState) {
             return AlertDialog(
               title: const Text('ลบผู้ใช้ / Delete tutor'),
-              content: Text('ยืนยันการลบ ${tutor.name} ออกจากระบบหรือไม่? / Delete this tutor?'),
+              content: Text('ยืนยันการลบ ${tutor.nickname} ออกจากระบบหรือไม่? / Delete this tutor?'),
               actions: [
                 TextButton(
                   onPressed: isDeleting ? null : () => Navigator.of(dialogContext).pop(false),
@@ -258,7 +239,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     );
     if (deleted == true && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('ลบ ${tutor.name} เรียบร้อย / Tutor removed')),
+        SnackBar(content: Text('ลบ ${tutor.nickname} เรียบร้อย / Tutor removed')),
       );
     }
   }
@@ -371,6 +352,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             separatorBuilder: (_, __) => const SizedBox(height: 12),
             itemBuilder: (BuildContext context, int index) {
               final Tutor tutor = tutors[index];
+              MemoryImage? avatarImage;
+              if (tutor.profileImageBase64 != null && tutor.profileImageBase64!.isNotEmpty) {
+                try {
+                  avatarImage = MemoryImage(base64Decode(tutor.profileImageBase64!));
+                } catch (_) {
+                  avatarImage = null;
+                }
+              }
+              final String phoneDisplay = tutor.phoneNumber.isEmpty ? '-' : tutor.phoneNumber;
               return Card(
                 elevation: 2,
                 child: Padding(
@@ -380,13 +370,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     children: [
                       ListTile(
                         leading: CircleAvatar(
-                          child: Text(
-                            tutor.name.isNotEmpty ? tutor.name.characters.first : '?',
-                          ),
+                          backgroundImage: avatarImage,
+                          child: avatarImage == null
+                              ? Text(tutor.nickname.isNotEmpty ? tutor.nickname.characters.first : '?')
+                              : null,
                         ),
-                        title: Text(tutor.name),
+                        title: Text(tutor.nickname),
                         subtitle: Text(
-                          'ชื่อเล่น: ${tutor.nickname} | อายุ: ${tutor.age}\nอีเมล: ${tutor.email}\nไอดีไลน์: ${tutor.lineId}',
+                          'เบอร์: $phoneDisplay\nอีเมล: ${tutor.email}\nไอดีไลน์: ${tutor.lineId}',
                         ),
                         isThreeLine: true,
                       ),

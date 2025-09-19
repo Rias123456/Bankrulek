@@ -26,6 +26,7 @@ class BankrulekApp extends StatelessWidget {
         title: 'Bankrulek Tutor Portal',
         theme: ThemeData(
           colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
+          scaffoldBackgroundColor: const Color(0xFFFFE4E1),
           useMaterial3: true,
         ),
         initialRoute: '/',

@@ -24,8 +24,8 @@ class HomeScreen extends StatelessWidget {
             ),
             const SizedBox(height: 32),
             PrimaryButton(
-              label: 'ล็อกอินติวเตอร์ / Tutor Login',
-              onPressed: () => Navigator.pushNamed(context, '/tutor-login'),
+              label: 'ล็อกอินแอดมิน / Admin Login',
+              onPressed: () => Navigator.pushNamed(context, '/admin-login'),
             ),
             const SizedBox(height: 16),
             PrimaryButton(
@@ -34,8 +34,8 @@ class HomeScreen extends StatelessWidget {
             ),
             const SizedBox(height: 16),
             PrimaryButton(
-              label: 'ล็อกอินแอดมิน / Admin Login',
-              onPressed: () => Navigator.pushNamed(context, '/admin-login'),
+              label: 'ล็อกอินติวเตอร์ / Tutor Login',
+              onPressed: () => Navigator.pushNamed(context, '/tutor-login'),
             ),
           ],
         ),
