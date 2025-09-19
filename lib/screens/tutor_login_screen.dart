@@ -5,7 +5,7 @@ import '../providers/auth_provider.dart';
 import '../widgets/primary_button.dart';
 import 'login_success_screen.dart';
 
-/// หน้าล็อกอินสำหรับติวเตอร์ / Tutor login screen
+/// หน้าล็อกอินสำหรับติวเตอร์
 class TutorLoginScreen extends StatefulWidget {
   const TutorLoginScreen({super.key});
 
@@ -15,11 +15,11 @@ class TutorLoginScreen extends StatefulWidget {
 
 class _TutorLoginScreenState extends State<TutorLoginScreen> {
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
+
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
 
   bool _isSubmitting = false;
-  bool _obscurePassword = true; // ซ่อนรหัสผ่านเริ่มต้น
 
   @override
   void dispose() {
@@ -32,7 +32,7 @@ class _TutorLoginScreenState extends State<TutorLoginScreen> {
     if (!_formKey.currentState!.validate()) return;
 
     setState(() => _isSubmitting = true);
-    final authProvider = context.read<AuthProvider>();
+    final AuthProvider authProvider = context.read<AuthProvider>();
     final String? error = await authProvider.loginTutor(
       email: _emailController.text.trim(),
       password: _passwordController.text.trim(),
@@ -51,118 +51,94 @@ class _TutorLoginScreenState extends State<TutorLoginScreen> {
       context,
       '/login-success',
       arguments: const LoginSuccessArgs(
-        title: 'ล็อกอินสำเร็จ / Login successful',
-        message:
-            'ยินดีต้อนรับกลับ! คุณสามารถกลับหน้าหลักได้จากปุ่มด้านล่าง / Welcome back! Use the button below to return home.',
+        title: 'ล็อกอินสำเร็จ',
+        message: 'ยินดีต้อนรับกลับ! คุณสามารถกลับหน้าหลักได้จากปุ่มด้านล่าง',
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
     return Scaffold(
+      backgroundColor: const Color(0xFFFFE4E1), // พื้นหลังสีชมพูอ่อน
       appBar: AppBar(
-        title: const Text('ล็อกอินติวเตอร์ / Tutor Login'),
-        centerTitle: true,
+        title: const Text('ล็อกอินติวเตอร์'),
+        backgroundColor: const Color(0xFFFFE4E1),
+        elevation: 0,
       ),
-      body: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: Card(
-            shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            elevation: 6,
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    // โลโก้
-                    Image.asset(
-                      'assets/images/logo.png',
-                      height: 100,
-                    ),
-                    const SizedBox(height: 24),
-
-                    // Email
-                    TextFormField(
-                      controller: _emailController,
-                      decoration: const InputDecoration(
-                        labelText: 'อีเมล / Email',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.email),
-                      ),
-                      keyboardType: TextInputType.emailAddress,
-                      validator: (value) {
-                        if (value == null || value.isEmpty) {
-                          return 'กรุณากรอกอีเมล / Please enter email';
-                        }
-                        if (!value.contains('@')) {
-                          return 'รูปแบบอีเมลไม่ถูกต้อง / Invalid email format';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 16),
-
-                    // Password
-                    TextFormField(
-                      controller: _passwordController,
-                      decoration: InputDecoration(
-                        labelText: 'รหัสผ่าน / Password',
-                        border: const OutlineInputBorder(),
-                        prefixIcon: const Icon(Icons.lock),
-                        suffixIcon: IconButton(
-                          icon: Icon(
-                            _obscurePassword
-                                ? Icons.visibility_off
-                                : Icons.visibility,
-                          ),
-                          onPressed: () {
-                            setState(() {
-                              _obscurePassword = !_obscurePassword;
-                            });
-                          },
-                        ),
-                      ),
-                      obscureText: _obscurePassword,
-                      validator: (value) {
-                        if (value == null || value.isEmpty) {
-                          return 'กรุณากรอกรหัสผ่าน / Please enter password';
-                        }
-                        if (value.length < 6) {
-                          return 'อย่างน้อย 6 ตัวอักษร / Minimum 6 characters';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 24),
-
-                    // Login button
-                    PrimaryButton(
-                      label: _isSubmitting
-                          ? 'กำลังเข้าสู่ระบบ... / Signing in...'
-                          : 'เข้าสู่ระบบ / Sign in',
-                      onPressed: _isSubmitting ? null : _handleLogin,
-                    ),
-
-                    if (_isSubmitting) ...[
-                      const SizedBox(height: 16),
-                      Center(
-                        child: CircularProgressIndicator(
-                          color: theme.colorScheme.primary,
-                        ),
-                      ),
-                    ],
-                  ],
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // โลโก้ด้านบน
+              Center(
+                child: CircleAvatar(
+                  radius: 50,
+                  backgroundImage: const AssetImage('assets/images/logo.png'),
+                  backgroundColor: Colors.white,
                 ),
               ),
-            ),
+              const SizedBox(height: 40),
+
+              // ช่องกรอกอีเมล
+              TextFormField(
+                controller: _emailController,
+                decoration: InputDecoration(
+                  labelText: 'อีเมล',
+                  prefixIcon: const Icon(Icons.email),
+                  filled: true,
+                  fillColor: Colors.white,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                keyboardType: TextInputType.emailAddress,
+                validator: (String? value) {
+                  if (value == null || value.isEmpty) {
+                    return 'กรุณากรอกอีเมล';
+                  }
+                  if (!value.contains('@')) {
+                    return 'รูปแบบอีเมลไม่ถูกต้อง';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 16),
+
+              // ช่องกรอกรหัสผ่าน
+              TextFormField(
+                controller: _passwordController,
+                obscureText: true,
+                decoration: InputDecoration(
+                  labelText: 'รหัสผ่าน',
+                  prefixIcon: const Icon(Icons.lock),
+                  filled: true,
+                  fillColor: Colors.white,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                validator: (String? value) {
+                  if (value == null || value.isEmpty) {
+                    return 'กรุณากรอกรหัสผ่าน';
+                  }
+                  if (value.length < 6) {
+                    return 'อย่างน้อย 6 ตัวอักษร';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 28),
+
+              // ปุ่มล็อกอิน
+              PrimaryButton(
+                label: _isSubmitting ? 'กำลังเข้าสู่ระบบ...' : 'เข้าสู่ระบบ',
+                onPressed: _isSubmitting ? null : _handleLogin,
+              ),
+            ],
           ),
         ),
       ),
