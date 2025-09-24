@@ -276,56 +276,94 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
     final String lineDisplay =
         _lineIdController.text.trim().isEmpty ? tutor.lineId : _lineIdController.text.trim();
 
-    return Card(
-      color: Colors.white,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      elevation: 2,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            CircleAvatar(
-              radius: 40,
+    return Container(
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: <Color>[Color(0xFFFFC1D0), Color(0xFFFFE4E1)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(28),
+        boxShadow: const <BoxShadow>[
+          BoxShadow(
+            color: Color(0x22000000),
+            blurRadius: 12,
+            offset: Offset(0, 6),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: <Widget>[
+          Container(
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: Colors.white.withOpacity(0.65),
+            ),
+            child: CircleAvatar(
+              radius: 50,
               backgroundColor: const Color(0xFFFFF5F5),
               backgroundImage: imageProvider,
               child: imageProvider == null
-                  ? const Icon(Icons.person, size: 40, color: Colors.grey)
+                  ? const Icon(Icons.person, size: 52, color: Colors.grey)
                   : null,
             ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Text(
-                    'ครู$nicknameDisplay',
-                    style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    'สถานะ: $_selectedStatus',
-                    style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    'อีเมล: ${tutor.email}',
-                    style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    'เบอร์โทร: ${phoneDisplay.isEmpty ? '-' : phoneDisplay}',
-                    style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
-                  ),
-                  Text(
-                    'ID LINE: ${lineDisplay.isEmpty ? '-' : lineDisplay}',
-                    style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
-                  ),
-                ],
-              ),
+          ),
+          const SizedBox(height: 18),
+          Text(
+            'ครู$nicknameDisplay',
+            style: const TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF4A4A4A),
             ),
-          ],
-        ),
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            alignment: WrapAlignment.center,
+            spacing: 12,
+            runSpacing: 10,
+            children: <Widget>[
+              _buildHeaderChip(Icons.flag, _selectedStatus),
+              _buildHeaderChip(Icons.email_outlined, 'อีเมล: ${tutor.email}'),
+              _buildHeaderChip(
+                Icons.phone_outlined,
+                'เบอร์: ${phoneDisplay.isEmpty ? '-' : phoneDisplay}',
+              ),
+              _buildHeaderChip(
+                Icons.chat_bubble_outline,
+                'LINE: ${lineDisplay.isEmpty ? '-' : lineDisplay}',
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHeaderChip(IconData icon, String value) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.85),
+        borderRadius: BorderRadius.circular(24),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Icon(icon, size: 18, color: Colors.pink.shade400),
+          const SizedBox(width: 6),
+          Text(
+            value,
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
       ),
     );
   }

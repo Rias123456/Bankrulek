@@ -3,7 +3,6 @@ import 'package:provider/provider.dart';
 
 import '../providers/auth_provider.dart';
 import '../widgets/primary_button.dart';
-import 'login_success_screen.dart';
 
 /// หน้าล็อกอินสำหรับผู้ดูแลระบบ / Admin login screen
 class AdminLoginScreen extends StatefulWidget {
@@ -46,16 +45,7 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
       return;
     }
 
-    Navigator.pushReplacementNamed(
-      context,
-      '/login-success',
-      arguments: const LoginSuccessArgs(
-        title: 'ล็อกอินแอดมินสำเร็จ',
-        message: 'คุณสามารถเปิดแดชบอร์ดสำหรับจัดการข้อมูลได้ทันที',
-        actionLabel: 'เปิดแดชบอร์ดแอดมิน ',
-        actionRoute: '/admin-dashboard',
-      ),
-    );
+    Navigator.pushReplacementNamed(context, '/admin-dashboard');
   }
 
   @override
