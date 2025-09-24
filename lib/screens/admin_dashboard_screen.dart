@@ -15,11 +15,22 @@ class AdminDashboardScreen extends StatefulWidget {
 
 class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   Future<void> _showEditTutorDialog(Tutor tutor) async {
+    final TextEditingController firstNameController = TextEditingController(text: tutor.firstName);
+    final TextEditingController lastNameController = TextEditingController(text: tutor.lastName);
     final TextEditingController nicknameController = TextEditingController(text: tutor.nickname);
+    final TextEditingController ageController = TextEditingController(text: tutor.age);
     final TextEditingController phoneController = TextEditingController(text: tutor.phoneNumber);
     final TextEditingController lineIdController = TextEditingController(text: tutor.lineId);
     final TextEditingController emailController = TextEditingController(text: tutor.email);
     final TextEditingController passwordController = TextEditingController(text: tutor.password);
+    final TextEditingController currentActivityController =
+        TextEditingController(text: tutor.currentActivity);
+    final TextEditingController travelTimeController =
+        TextEditingController(text: tutor.travelTime);
+    final TextEditingController scheduleNotesController =
+        TextEditingController(text: tutor.scheduleNotes);
+    final TextEditingController subjectsController =
+        TextEditingController(text: tutor.subjects.join(', '));
     String selectedStatus = tutor.status;
     bool isSaving = false;
 
@@ -40,11 +51,36 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     TextField(
+                      controller: firstNameController,
+                      decoration: const InputDecoration(
+                        labelText: 'ชื่อจริง / First name',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: lastNameController,
+                      decoration: const InputDecoration(
+                        labelText: 'นามสกุล / Last name',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
                       controller: nicknameController,
                       decoration: const InputDecoration(
                         labelText: 'ชื่อเล่น / Nickname',
                         border: OutlineInputBorder(),
                       ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: ageController,
+                      decoration: const InputDecoration(
+                        labelText: 'อายุ / Age',
+                        border: OutlineInputBorder(),
+                      ),
+                      keyboardType: TextInputType.number,
                     ),
                     const SizedBox(height: 12),
                     TextField(
@@ -81,6 +117,42 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                       ),
                     ),
                     const SizedBox(height: 12),
+                    TextField(
+                      controller: currentActivityController,
+                      decoration: const InputDecoration(
+                        labelText: 'สิ่งที่ทำในปัจจุบัน / Current activity',
+                        border: OutlineInputBorder(),
+                      ),
+                      maxLines: 2,
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: travelTimeController,
+                      decoration: const InputDecoration(
+                        labelText: 'เวลาเดินทาง / Travel time',
+                        border: OutlineInputBorder(),
+                      ),
+                      maxLines: 2,
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: scheduleNotesController,
+                      decoration: const InputDecoration(
+                        labelText: 'ตารางสอน / Schedule notes',
+                        border: OutlineInputBorder(),
+                      ),
+                      maxLines: 2,
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: subjectsController,
+                      decoration: const InputDecoration(
+                        labelText: 'วิชาที่สอน (คั่นด้วย ,) / Subjects taught',
+                        border: OutlineInputBorder(),
+                      ),
+                      maxLines: 2,
+                    ),
+                    const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
                       value: selectedStatus,
                       decoration: const InputDecoration(
@@ -114,12 +186,23 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                   onPressed: isSaving
                       ? null
                       : () async {
+                          final String firstName = firstNameController.text.trim();
+                          final String lastName = lastNameController.text.trim();
                           final String nickname = nicknameController.text.trim();
+                          final String age = ageController.text.trim();
                           final String phoneNumber = phoneController.text.trim();
                           final String lineId = lineIdController.text.trim();
                           final String email = emailController.text.trim();
                           final String password = passwordController.text.trim();
-                          if (nickname.isEmpty || phoneNumber.isEmpty || lineId.isEmpty || email.isEmpty || password.isEmpty) {
+                          final String currentActivity = currentActivityController.text.trim();
+                          final String travelTime = travelTimeController.text.trim();
+                          final String scheduleNotes = scheduleNotesController.text.trim();
+                          final List<String> subjects = subjectsController.text
+                              .split(',')
+                              .map((String value) => value.trim())
+                              .where((String value) => value.isNotEmpty)
+                              .toList();
+                          if (firstName.isEmpty || nickname.isEmpty || phoneNumber.isEmpty || lineId.isEmpty || email.isEmpty || password.isEmpty) {
                             ScaffoldMessenger.of(this.context).showSnackBar(
                               const SnackBar(
                                 content: Text('กรุณากรอกข้อมูลให้ครบถ้วน / Please fill in all fields'),
@@ -138,12 +221,19 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                           setDialogState(() => isSaving = true);
                           final AuthProvider authProvider = this.context.read<AuthProvider>();
                           final Tutor updatedTutor = tutor.copyWith(
+                            firstName: firstName,
+                            lastName: lastName,
                             nickname: nickname,
+                            age: age,
                             phoneNumber: phoneNumber,
                             lineId: lineId,
                             email: email,
                             password: password,
                             status: selectedStatus,
+                            currentActivity: currentActivity,
+                            travelTime: travelTime,
+                            scheduleNotes: scheduleNotes,
+                            subjects: subjects,
                           );
                           final String? error = await authProvider.updateTutor(
                             originalEmail: tutor.email,
@@ -161,7 +251,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                           }
                           Navigator.of(dialogContext).pop();
                           ScaffoldMessenger.of(this.context).showSnackBar(
-                            const SnackBar(content: Text('บันทึกข้อมูลสำเร็จ / Tutor updated')), 
+                            const SnackBar(content: Text('บันทึกข้อมูลสำเร็จ / Tutor updated')),
                           );
                         },
                   child: isSaving
@@ -179,11 +269,18 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       },
     );
 
+    firstNameController.dispose();
+    lastNameController.dispose();
     nicknameController.dispose();
+    ageController.dispose();
     phoneController.dispose();
     lineIdController.dispose();
     emailController.dispose();
     passwordController.dispose();
+    currentActivityController.dispose();
+    travelTimeController.dispose();
+    scheduleNotesController.dispose();
+    subjectsController.dispose();
   }
 
   Future<void> _showDeleteTutorDialog(Tutor tutor) async {
@@ -361,6 +458,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                 }
               }
               final String phoneDisplay = tutor.phoneNumber.isEmpty ? '-' : tutor.phoneNumber;
+              final String fullName = <String>[tutor.firstName, tutor.lastName]
+                  .where((String value) => value.trim().isNotEmpty)
+                  .join(' ');
+              final bool hasExtraDetails = fullName.isNotEmpty ||
+                  tutor.age.isNotEmpty ||
+                  tutor.currentActivity.isNotEmpty ||
+                  tutor.travelTime.isNotEmpty ||
+                  tutor.scheduleNotes.isNotEmpty ||
+                  tutor.subjects.isNotEmpty;
               return Card(
                 elevation: 2,
                 child: Padding(
@@ -377,10 +483,34 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                         ),
                         title: Text(tutor.nickname),
                         subtitle: Text(
-                          'เบอร์: $phoneDisplay\nอีเมล: ${tutor.email}\nไอดีไลน์: ${tutor.lineId}',
+                          <String>[
+                            if (fullName.isNotEmpty) 'ชื่อจริง: $fullName',
+                            'เบอร์: $phoneDisplay',
+                            'อีเมล: ${tutor.email}',
+                            'ไอดีไลน์: ${tutor.lineId}',
+                          ].join('\n'),
                         ),
                         isThreeLine: true,
                       ),
+                      if (hasExtraDetails)
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              if (tutor.age.isNotEmpty)
+                                Text('อายุ: ${tutor.age}'),
+                              if (tutor.currentActivity.isNotEmpty)
+                                Text('สิ่งที่ทำ: ${tutor.currentActivity}'),
+                              if (tutor.travelTime.isNotEmpty)
+                                Text('เวลาเดินทาง: ${tutor.travelTime}'),
+                              if (tutor.scheduleNotes.isNotEmpty)
+                                Text('ตารางสอน: ${tutor.scheduleNotes}'),
+                              if (tutor.subjects.isNotEmpty)
+                                Text('วิชาที่สอน: ${tutor.subjects.join(', ')}'),
+                            ],
+                          ),
+                        ),
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 16),
                         child: Wrap(

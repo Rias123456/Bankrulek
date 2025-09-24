@@ -23,6 +23,15 @@ class _RegisterTutorScreenState extends State<RegisterTutorScreen> {
   /// controller ชื่อเล่น / Controller for tutor nickname
   final TextEditingController _nicknameController = TextEditingController();
 
+  /// controller ชื่อจริง / Controller for tutor first name
+  final TextEditingController _firstNameController = TextEditingController();
+
+  /// controller นามสกุล / Controller for tutor last name
+  final TextEditingController _lastNameController = TextEditingController();
+
+  /// controller อายุ / Controller for tutor age
+  final TextEditingController _ageController = TextEditingController();
+
   /// controller เบอร์โทรศัพท์ / Controller for tutor phone number
   final TextEditingController _phoneController = TextEditingController();
 
@@ -47,6 +56,9 @@ class _RegisterTutorScreenState extends State<RegisterTutorScreen> {
   @override
   void dispose() {
     _nicknameController.dispose();
+    _firstNameController.dispose();
+    _lastNameController.dispose();
+    _ageController.dispose();
     _phoneController.dispose();
     _lineIdController.dispose();
     _emailController.dispose();
@@ -85,7 +97,10 @@ class _RegisterTutorScreenState extends State<RegisterTutorScreen> {
     setState(() => _isSubmitting = true);
     final AuthProvider authProvider = context.read<AuthProvider>();
     final String? error = await authProvider.registerTutor(
+      firstName: _firstNameController.text.trim(),
+      lastName: _lastNameController.text.trim(),
       nickname: _nicknameController.text.trim(),
+      age: _ageController.text.trim(),
       phoneNumber: _phoneController.text.trim(),
       lineId: _lineIdController.text.trim(),
       email: _emailController.text.trim(),
@@ -149,6 +164,28 @@ class _RegisterTutorScreenState extends State<RegisterTutorScreen> {
                 ),
                 const SizedBox(height: 24),
                 TextFormField(
+                  controller: _firstNameController,
+                  decoration: const InputDecoration(
+                    labelText: 'ชื่อจริง / First name',
+                    border: OutlineInputBorder(),
+                  ),
+                  validator: (String? value) {
+                    if (value == null || value.isEmpty) {
+                      return 'กรุณากรอกชื่อจริง / Please enter first name';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: _lastNameController,
+                  decoration: const InputDecoration(
+                    labelText: 'นามสกุล / Last name (ไม่บังคับ)',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
                   controller: _nicknameController,
                   decoration: const InputDecoration(
                     labelText: 'ชื่อเล่น / Nickname',
@@ -157,6 +194,21 @@ class _RegisterTutorScreenState extends State<RegisterTutorScreen> {
                   validator: (String? value) {
                     if (value == null || value.isEmpty) {
                       return 'กรุณากรอกชื่อเล่น / Please enter nickname';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: _ageController,
+                  decoration: const InputDecoration(
+                    labelText: 'อายุ / Age',
+                    border: OutlineInputBorder(),
+                  ),
+                  keyboardType: TextInputType.number,
+                  validator: (String? value) {
+                    if (value == null || value.isEmpty) {
+                      return 'กรุณากรอกอายุ / Please enter age';
                     }
                     return null;
                   },

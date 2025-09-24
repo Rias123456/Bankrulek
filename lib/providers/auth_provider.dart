@@ -6,8 +6,17 @@ import 'package:path_provider/path_provider.dart';
 
 /// คลาสข้อมูลสำหรับเก็บรายละเอียดของติวเตอร์ / Data model for tutors
 class Tutor {
+  /// ชื่อจริง / First name
+  final String firstName;
+
+  /// นามสกุล / Last name
+  final String lastName;
+
   /// ชื่อเล่น / Nickname
   final String nickname;
+
+  /// อายุ / Age
+  final String age;
 
   /// เบอร์โทรศัพท์ที่ติดต่อได้ / Contact phone number
   final String phoneNumber;
@@ -24,6 +33,18 @@ class Tutor {
   /// สถานะของติวเตอร์ / Tutor current status
   final String status;
 
+  /// สิ่งที่กำลังทำในปัจจุบัน / Current activity description
+  final String currentActivity;
+
+  /// เวลาเดินทางที่ใช้มาสอน / Travel time notes
+  final String travelTime;
+
+  /// หมายเหตุหรือตารางสอน / Teaching schedule notes
+  final String scheduleNotes;
+
+  /// รายการวิชาที่สอน / Subjects taught (with level tags)
+  final List<String> subjects;
+
   /// ข้อมูลรูปโปรไฟล์แบบ Base64 / Base64-encoded profile image data
   final String? profileImageBase64;
 
@@ -37,23 +58,36 @@ class Tutor {
   ];
 
   const Tutor({
+    this.firstName = '',
+    this.lastName = '',
     required this.nickname,
+    this.age = '',
     required this.phoneNumber,
     required this.lineId,
     required this.email,
     required this.password,
     required this.status,
+    this.currentActivity = '',
+    this.travelTime = '',
+    this.scheduleNotes = '',
+    List<String>? subjects,
     this.profileImageBase64,
-  });
+  }) : subjects = subjects ?? const <String>[];
 
   /// แปลงเป็นข้อความบันทึก / Convert data into a readable storage line
   String toStorageLine() {
     String sanitize(String value) => value.replaceAll('\n', ' ').replaceAll('|', '/');
     final String imageSnippet =
         profileImageBase64 != null && profileImageBase64!.isNotEmpty ? sanitize(profileImageBase64!) : '';
-    return 'ชื่อเล่น: ${sanitize(nickname)} | เบอร์โทร: ${sanitize(phoneNumber)} | '
+    final String subjectSnippet = subjects.isEmpty
+        ? ''
+        : subjects.map(sanitize).join(', ');
+    return 'ชื่อจริง: ${sanitize(firstName)} | นามสกุล: ${sanitize(lastName)} | '
+        'ชื่อเล่น: ${sanitize(nickname)} | อายุ: ${sanitize(age)} | เบอร์โทร: ${sanitize(phoneNumber)} | '
         'ไอดีไลน์: ${sanitize(lineId)} | อีเมล: ${sanitize(email)} | รหัสผ่าน: ${sanitize(password)} | '
-        'สถานะ: ${sanitize(status)} | รูปโปรไฟล์: $imageSnippet';
+        'สถานะ: ${sanitize(status)} | สิ่งที่ทำ: ${sanitize(currentActivity)} | '
+        'เวลาเดินทาง: ${sanitize(travelTime)} | ตารางสอน: ${sanitize(scheduleNotes)} | '
+        'วิชาที่สอน: $subjectSnippet | รูปโปรไฟล์: $imageSnippet';
   }
 
   /// สร้าง Tutor จากบรรทัดข้อความ / Create a Tutor from a storage line
@@ -85,44 +119,79 @@ class Tutor {
       }
     }
 
+    final String firstName = findValue('ชื่อจริง') ?? '';
+    final String lastName = findValue('นามสกุล') ?? '';
     final String? nickname = findValue('ชื่อเล่น');
+    final String age = findValue('อายุ') ?? '';
     final String? phoneNumber = findValue('เบอร์โทร') ?? findValue('เบอร์โทรศัพท์');
     final String? lineId = findValue('ไอดีไลน์');
     final String? email = findValue('อีเมล');
     final String? password = findValue('รหัสผ่าน');
     final String status = findValue('สถานะ') ?? defaultStatus;
+    final String currentActivity = findValue('สิ่งที่ทำ') ?? '';
+    final String travelTime = findValue('เวลาเดินทาง') ?? '';
+    final String scheduleNotes = findValue('ตารางสอน') ?? '';
     final String? profileImageBase64 = findValue('รูปโปรไฟล์');
+    final String? subjectRaw = findValue('วิชาที่สอน');
+    final List<String> subjects = subjectRaw == null || subjectRaw.isEmpty
+        ? <String>[]
+        : subjectRaw
+            .split(',')
+            .map((String item) => item.trim())
+            .where((String item) => item.isNotEmpty)
+            .toList();
     if (nickname == null || lineId == null || email == null || password == null) {
       return null;
     }
     return Tutor(
+      firstName: firstName,
+      lastName: lastName,
       nickname: nickname,
+      age: age,
       phoneNumber: phoneNumber ?? '',
       lineId: lineId,
       email: email,
       password: password,
       status: status,
+      currentActivity: currentActivity,
+      travelTime: travelTime,
+      scheduleNotes: scheduleNotes,
+      subjects: subjects,
       profileImageBase64: profileImageBase64,
     );
   }
 
   /// สร้างอ็อบเจ็กต์ใหม่โดยคงค่าเดิม / Copy with new field values
   Tutor copyWith({
+    String? firstName,
+    String? lastName,
     String? nickname,
+    String? age,
     String? phoneNumber,
     String? lineId,
     String? email,
     String? password,
     String? status,
+    String? currentActivity,
+    String? travelTime,
+    String? scheduleNotes,
+    List<String>? subjects,
     String? profileImageBase64,
   }) {
     return Tutor(
+      firstName: firstName ?? this.firstName,
+      lastName: lastName ?? this.lastName,
       nickname: nickname ?? this.nickname,
+      age: age ?? this.age,
       phoneNumber: phoneNumber ?? this.phoneNumber,
       lineId: lineId ?? this.lineId,
       email: email ?? this.email,
       password: password ?? this.password,
       status: status ?? this.status,
+      currentActivity: currentActivity ?? this.currentActivity,
+      travelTime: travelTime ?? this.travelTime,
+      scheduleNotes: scheduleNotes ?? this.scheduleNotes,
+      subjects: subjects ?? this.subjects,
       profileImageBase64: profileImageBase64 ?? this.profileImageBase64,
     );
   }
@@ -226,7 +295,8 @@ class AuthProvider extends ChangeNotifier {
       ..writeln('# วิธีดูข้อมูลที่จัดเก็บไว้: เปิดไฟล์นี้ด้วยแอปจัดการไฟล์หรือเทอร์มินัล')
       ..writeln('# ที่อยู่ไฟล์: $normalizedPath')
       ..writeln('# ตัวอย่างคำสั่ง: cat "$normalizedPath"')
-      ..writeln('# ฟอร์แมตข้อมูล: ชื่อเล่น | เบอร์โทร | ไอดีไลน์ | อีเมล | รหัสผ่าน | สถานะ | รูปโปรไฟล์ (Base64)')
+      ..writeln('# ฟอร์แมตข้อมูล: ชื่อจริง | นามสกุล | ชื่อเล่น | อายุ | เบอร์โทร | ไอดีไลน์ | อีเมล | รหัสผ่าน | ')
+      ..writeln('#   สถานะ | สิ่งที่ทำ | เวลาเดินทาง | ตารางสอน | วิชาที่สอน (คั่นด้วย ,) | รูปโปรไฟล์ (Base64)')
       ..writeln();
     for (final Tutor tutor in tutors) {
       buffer.writeln(tutor.toStorageLine());
@@ -236,11 +306,18 @@ class AuthProvider extends ChangeNotifier {
 
   /// สมัครสมาชิกติวเตอร์ / Register new tutor
   Future<String?> registerTutor({
+    required String firstName,
+    String lastName = '',
     required String nickname,
+    String age = '',
     required String phoneNumber,
     required String lineId,
     required String email,
     required String password,
+    String currentActivity = '',
+    String travelTime = '',
+    String scheduleNotes = '',
+    List<String>? subjects,
     String? profileImageBase64,
   }) async {
     final bool alreadyExists =
@@ -249,12 +326,19 @@ class AuthProvider extends ChangeNotifier {
       return 'อีเมลนี้ถูกใช้แล้ว / Email already registered';
     }
     final Tutor tutor = Tutor(
+      firstName: firstName,
+      lastName: lastName,
       nickname: nickname,
+      age: age,
       phoneNumber: phoneNumber,
       lineId: lineId,
       email: email,
       password: password,
       status: Tutor.defaultStatus,
+      currentActivity: currentActivity,
+      travelTime: travelTime,
+      scheduleNotes: scheduleNotes,
+      subjects: subjects,
       profileImageBase64: profileImageBase64,
     );
     _tutors.add(tutor);
@@ -336,6 +420,10 @@ class AuthProvider extends ChangeNotifier {
       }
     }
     _tutors[index] = updatedTutor;
+    if (_currentTutor != null &&
+        _currentTutor!.email.toLowerCase() == originalEmail.toLowerCase()) {
+      _currentTutor = updatedTutor;
+    }
     await _saveTutors();
     notifyListeners();
     return null;
