@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-
 /// หน้าหลักของระบบ / Main entry screen for the portal
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -8,61 +7,66 @@ class HomeScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFFFE4E1), // พื้นหลังสีชมพูอ่อน
+      backgroundColor: const Color(0xFFFFE4E1),
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 40),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.start,
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              // โลโก้กลม
-              CircleAvatar(
-                radius: 60,
+        child: Stack(
+          children: [
+            // โลโก้ด้านบน
+            Align(
+              alignment: const Alignment(0, -0.9), // ค่า y = -1.0 คือบนสุด, 1.0 คือ ล่างสุด
+              child: CircleAvatar(
+                radius: 80,
                 backgroundImage: const AssetImage('assets/images/logo.png'),
                 backgroundColor: Colors.white,
               ),
-              const SizedBox(height: 16),
+            ),
 
-              // ชื่อระบบ
-              const Text(
-                'บ้านครูเล็ก',
+            // ชื่อระบบ
+            Align(
+              alignment: const Alignment(0, -0.65),
+              child: const Text(
+                '',
                 style: TextStyle(
                   fontSize: 22,
                   fontWeight: FontWeight.bold,
                   color: Colors.black87,
                 ),
               ),
-              const SizedBox(height: 40),
+            ),
 
-              // ปุ่ม Admin Login
-              _buildStyledButton(
+            // ปุ่ม Admin Login
+            Align(
+              alignment: const Alignment(0, -0.2), // กำหนดตำแหน่งเอง (แก้ค่า y ได้)
+              child: _buildStyledButton(
                 context,
                 label: 'Admin Login',
                 icon: Icons.lock,
                 onPressed: () => Navigator.pushNamed(context, '/admin-login'),
               ),
-              const SizedBox(height: 20),
+            ),
 
-              // ปุ่ม Register Tutor
-              _buildStyledButton(
+            // ปุ่ม ลงทะเบียนติวเตอร์
+            Align(
+              alignment: const Alignment(0, 0.0), // อยู่ตรงกลางจอ (y = 0)
+              child: _buildStyledButton(
                 context,
                 label: 'ลงทะเบียนติวเตอร์',
                 icon: Icons.person_add,
-                onPressed: () =>
-                    Navigator.pushNamed(context, '/register-tutor'),
+                onPressed: () => Navigator.pushNamed(context, '/register-tutor'),
               ),
-              const SizedBox(height: 20),
+            ),
 
-              // ปุ่ม Tutor Login
-              _buildStyledButton(
+            // ปุ่ม เข้าสู่ระบบติวเตอร์
+            Align(
+              alignment: const Alignment(0, 0.2), // อยู่ต่ำกว่า (แก้ y ได้)
+              child: _buildStyledButton(
                 context,
                 label: 'เข้าสู่ระบบติวเตอร์',
                 icon: Icons.login,
                 onPressed: () => Navigator.pushNamed(context, '/tutor-login'),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -76,7 +80,7 @@ class HomeScreen extends StatelessWidget {
     required VoidCallback onPressed,
   }) {
     return SizedBox(
-      width: double.infinity,
+      width: 220,
       child: ElevatedButton.icon(
         onPressed: onPressed,
         icon: Icon(icon, color: Colors.black87),
@@ -90,7 +94,7 @@ class HomeScreen extends StatelessWidget {
         ),
         style: ElevatedButton.styleFrom(
           backgroundColor: Colors.white,
-          minimumSize: const Size(double.infinity, 52),
+          minimumSize: const Size(220, 48),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
           ),

@@ -62,6 +62,14 @@ class _RegisterTutorScreenState extends State<RegisterTutorScreen> {
   Future<void> _handleRegister() async {
     if (!_formKey.currentState!.validate()) return;
 
+    // ✅ เช็กว่ามีการเลือกรูปหรือไม่
+    if (_profileImageBase64 == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('กรุณาเลือกรูปโปรไฟล์')),
+      );
+      return;
+    }
+
     setState(() => _isSubmitting = true);
     final AuthProvider authProvider = context.read<AuthProvider>();
     final String? error = await authProvider.registerTutor(
@@ -172,11 +180,12 @@ class _RegisterTutorScreenState extends State<RegisterTutorScreen> {
               ),
               const SizedBox(height: 16),
 
+              // ช่องรหัสผ่าน (ไม่ซ่อน)
               _buildTextField(
                 controller: _passwordController,
                 label: 'รหัสผ่าน',
                 icon: Icons.lock,
-                obscureText: true,
+                obscureText: false, // ✅ ไม่ซ่อน
                 validator: (value) {
                   if (value == null || value.isEmpty) {
                     return 'กรุณากรอกรหัสผ่าน';
@@ -189,10 +198,15 @@ class _RegisterTutorScreenState extends State<RegisterTutorScreen> {
               ),
               const SizedBox(height: 28),
 
-              // ปุ่มสมัคร
-              PrimaryButton(
-                label: _isSubmitting ? 'กำลังบันทึก...' : 'สมัครสมาชิก',
-                onPressed: _isSubmitting ? null : _handleRegister,
+              // ปุ่มสมัคร (กรอบสั้นลง)
+              Center(
+                child: SizedBox(
+                  width: 200,
+                  child: PrimaryButton(
+                    label: _isSubmitting ? 'กำลังบันทึก...' : 'สมัครสมาชิก',
+                    onPressed: _isSubmitting ? null : _handleRegister,
+                  ),
+                ),
               ),
             ],
           ),

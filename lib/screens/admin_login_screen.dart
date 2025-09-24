@@ -51,8 +51,7 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
       '/login-success',
       arguments: const LoginSuccessArgs(
         title: 'ล็อกอินแอดมินสำเร็จ',
-        message:
-            'คุณสามารถเปิดแดชบอร์ดสำหรับจัดการข้อมูลได้ทันที',
+        message: 'คุณสามารถเปิดแดชบอร์ดสำหรับจัดการข้อมูลได้ทันที',
         actionLabel: 'เปิดแดชบอร์ดแอดมิน ',
         actionRoute: '/admin-dashboard',
       ),
@@ -73,7 +72,7 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
         child: Form(
           key: _formKey,
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+            crossAxisAlignment: CrossAxisAlignment.center, // เปลี่ยนเป็น center
             children: [
               // ช่องกรอกชื่อผู้ใช้
               TextFormField(
@@ -96,7 +95,7 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
               ),
               const SizedBox(height: 16),
 
-              // ช่องกรอกรหัสผ่าน
+              // ช่องกรอกรหัสผ่าน (ไม่ซ่อน)
               TextFormField(
                 controller: _passwordController,
                 decoration: InputDecoration(
@@ -108,7 +107,7 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
                     borderRadius: BorderRadius.circular(12),
                   ),
                 ),
-                obscureText: true,
+                obscureText: false, // ✅ แก้ไม่ซ่อนรหัสผ่าน
                 validator: (String? value) {
                   if (value == null || value.isEmpty) {
                     return 'กรุณากรอกรหัสผ่าน';
@@ -118,12 +117,15 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
               ),
               const SizedBox(height: 28),
 
-              // ปุ่มล็อกอิน
-              PrimaryButton(
-                label: _isSubmitting
-                    ? 'กำลังเข้าสู่ระบบ...'
-                    : 'เข้าสู่ระบบ',
-                onPressed: _isSubmitting ? null : _handleLogin,
+              // ปุ่มล็อกอิน (ทำให้กรอบสั้นลง)
+              SizedBox(
+                width: 200, // ✅ กำหนดความกว้างเอง
+                child: PrimaryButton(
+                  label: _isSubmitting
+                      ? 'กำลังเข้าสู่ระบบ...'
+                      : 'เข้าสู่ระบบ',
+                  onPressed: _isSubmitting ? null : _handleLogin,
+                ),
               ),
             ],
           ),
