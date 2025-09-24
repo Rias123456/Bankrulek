@@ -27,6 +27,12 @@ class Tutor {
   /// ข้อมูลรูปโปรไฟล์แบบ Base64 / Base64-encoded profile image data
   final String? profileImageBase64;
 
+  /// วิชาที่สามารถสอนได้ พร้อมระดับชั้น / Subjects with the supported grade levels
+  final List<String> subjects;
+
+  /// รายละเอียดตารางสอน / Teaching schedule details
+  final String? teachingSchedule;
+
   /// สถานะมาตรฐานที่ใช้เป็นค่าเริ่มต้น / Default tutor status label
   static const String defaultStatus = 'เป็นครูอยู่';
 
@@ -44,6 +50,8 @@ class Tutor {
     required this.password,
     required this.status,
     this.profileImageBase64,
+    this.subjects = const <String>[],
+    this.teachingSchedule,
   });
 
   /// แปลงเป็นข้อความบันทึก / Convert data into a readable storage line
@@ -51,9 +59,15 @@ class Tutor {
     String sanitize(String value) => value.replaceAll('\n', ' ').replaceAll('|', '/');
     final String imageSnippet =
         profileImageBase64 != null && profileImageBase64!.isNotEmpty ? sanitize(profileImageBase64!) : '';
+    final String subjectsSnippet = subjects.isNotEmpty
+        ? sanitize(subjects.join(', '))
+        : '';
+    final String scheduleSnippet =
+        teachingSchedule != null && teachingSchedule!.isNotEmpty ? sanitize(teachingSchedule!) : '';
     return 'ชื่อเล่น: ${sanitize(nickname)} | เบอร์โทร: ${sanitize(phoneNumber)} | '
         'ไอดีไลน์: ${sanitize(lineId)} | อีเมล: ${sanitize(email)} | รหัสผ่าน: ${sanitize(password)} | '
-        'สถานะ: ${sanitize(status)} | รูปโปรไฟล์: $imageSnippet';
+        'สถานะ: ${sanitize(status)} | รูปโปรไฟล์: $imageSnippet | วิชาที่สอน: $subjectsSnippet | '
+        'ตารางสอน: $scheduleSnippet';
   }
 
   /// สร้าง Tutor จากบรรทัดข้อความ / Create a Tutor from a storage line
@@ -92,6 +106,18 @@ class Tutor {
     final String? password = findValue('รหัสผ่าน');
     final String status = findValue('สถานะ') ?? defaultStatus;
     final String? profileImageBase64 = findValue('รูปโปรไฟล์');
+    final String? subjectsValue = findValue('วิชาที่สอน');
+    final List<String> subjects = subjectsValue == null || subjectsValue.trim().isEmpty
+        ? <String>[]
+        : subjectsValue
+            .split(',')
+            .map((String subject) => subject.trim())
+            .where((String subject) => subject.isNotEmpty)
+            .toList();
+    final String? teachingScheduleValue = findValue('ตารางสอน');
+    final String? teachingSchedule =
+        teachingScheduleValue == null || teachingScheduleValue.trim().isEmpty ? null : teachingScheduleValue;
+
     if (nickname == null || lineId == null || email == null || password == null) {
       return null;
     }
@@ -103,6 +129,8 @@ class Tutor {
       password: password,
       status: status,
       profileImageBase64: profileImageBase64,
+      subjects: subjects,
+      teachingSchedule: teachingSchedule,
     );
   }
 
@@ -115,6 +143,8 @@ class Tutor {
     String? password,
     String? status,
     String? profileImageBase64,
+    List<String>? subjects,
+    String? teachingSchedule,
   }) {
     return Tutor(
       nickname: nickname ?? this.nickname,
@@ -124,6 +154,8 @@ class Tutor {
       password: password ?? this.password,
       status: status ?? this.status,
       profileImageBase64: profileImageBase64 ?? this.profileImageBase64,
+      subjects: subjects ?? this.subjects,
+      teachingSchedule: teachingSchedule ?? this.teachingSchedule,
     );
   }
 }
@@ -226,7 +258,7 @@ class AuthProvider extends ChangeNotifier {
       ..writeln('# วิธีดูข้อมูลที่จัดเก็บไว้: เปิดไฟล์นี้ด้วยแอปจัดการไฟล์หรือเทอร์มินัล')
       ..writeln('# ที่อยู่ไฟล์: $normalizedPath')
       ..writeln('# ตัวอย่างคำสั่ง: cat "$normalizedPath"')
-      ..writeln('# ฟอร์แมตข้อมูล: ชื่อเล่น | เบอร์โทร | ไอดีไลน์ | อีเมล | รหัสผ่าน | สถานะ | รูปโปรไฟล์ (Base64)')
+      ..writeln('# ฟอร์แมตข้อมูล: ชื่อเล่น | เบอร์โทร | ไอดีไลน์ | อีเมล | รหัสผ่าน | สถานะ | รูปโปรไฟล์ (Base64) | วิชาที่สอน | ตารางสอน')
       ..writeln();
     for (final Tutor tutor in tutors) {
       buffer.writeln(tutor.toStorageLine());
@@ -256,6 +288,8 @@ class AuthProvider extends ChangeNotifier {
       password: password,
       status: Tutor.defaultStatus,
       profileImageBase64: profileImageBase64,
+      subjects: const <String>[],
+      teachingSchedule: null,
     );
     _tutors.add(tutor);
     await _saveTutors();
@@ -336,6 +370,10 @@ class AuthProvider extends ChangeNotifier {
       }
     }
     _tutors[index] = updatedTutor;
+    if (_currentTutor != null &&
+        _currentTutor!.email.toLowerCase() == originalEmail.toLowerCase()) {
+      _currentTutor = updatedTutor;
+    }
     await _saveTutors();
     notifyListeners();
     return null;
