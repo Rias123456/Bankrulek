@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
@@ -62,8 +63,8 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
   final TextEditingController _lineIdController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _scheduleController = TextEditingController();
+  final TextEditingController _travelDurationController = TextEditingController();
 
-  String _selectedStatus = Tutor.defaultStatus;
   List<String> _selectedSubjects = <String>[];
   String? _profileImageBase64;
   final ImagePicker _imagePicker = ImagePicker();
@@ -77,6 +78,7 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
     _lineIdController.dispose();
     _emailController.dispose();
     _scheduleController.dispose();
+    _travelDurationController.dispose();
     super.dispose();
   }
 
@@ -90,7 +92,7 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
     _phoneController.text = tutor.phoneNumber;
     _lineIdController.text = tutor.lineId;
     _emailController.text = tutor.email;
-    _selectedStatus = tutor.status;
+    _travelDurationController.text = tutor.travelDuration;
     _selectedSubjects = List<String>.from(tutor.subjects);
     _scheduleController.text = tutor.teachingSchedule ?? '';
     _profileImageBase64 = tutor.profileImageBase64;
@@ -101,7 +103,7 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
     final String subjectsSignature = tutor.subjects.join(',');
     final String scheduleSignature = tutor.teachingSchedule ?? '';
     final String imageSignature = tutor.profileImageBase64 ?? '';
-    return '${tutor.email}|${tutor.nickname}|${tutor.phoneNumber}|${tutor.lineId}|${tutor.status}|'
+    return '${tutor.email}|${tutor.nickname}|${tutor.phoneNumber}|${tutor.lineId}|${tutor.status}|${tutor.travelDuration}|'
         '$subjectsSignature|$scheduleSignature|$imageSignature';
   }
 
@@ -136,7 +138,7 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
       phoneNumber: _phoneController.text.trim(),
       lineId: _lineIdController.text.trim(),
       email: _emailController.text.trim(),
-      status: _selectedStatus,
+      travelDuration: _travelDurationController.text.trim(),
       subjects: List<String>.from(_selectedSubjects),
       profileImageBase64:
           _profileImageBase64 == null || _profileImageBase64!.isEmpty ? null : _profileImageBase64,
@@ -455,6 +457,10 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
               controller: _nicknameController,
               label: 'ชื่อเล่น',
               icon: Icons.person,
+              textCapitalization: TextCapitalization.words,
+              inputFormatters: <TextInputFormatter>[
+                FilteringTextInputFormatter.allow(RegExp(r'[a-zA-Zก-๙\s]')),
+              ],
               validator: (String? value) =>
                   value == null || value.trim().isEmpty ? 'กรุณากรอกชื่อเล่น' : null,
             ),
@@ -483,21 +489,12 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
               readOnly: true,
             ),
             const SizedBox(height: 16),
-            DropdownButtonFormField<String>(
-              value: _selectedStatus,
-              decoration: _inputDecoration(label: 'สถานะปัจจุบัน', icon: Icons.flag),
-              items: Tutor.statuses
-                  .map((String status) => DropdownMenuItem<String>(
-                        value: status,
-                        child: Text(status),
-                      ))
-                  .toList(),
-              onChanged: (String? value) {
-                if (value == null) {
-                  return;
-                }
-                setState(() => _selectedStatus = value);
-              },
+            _buildTextField(
+              controller: _travelDurationController,
+              label: 'ระยะเวลาเดินทางมาสอน (เช่น 30 นาที)',
+              icon: Icons.timer,
+              validator: (String? value) =>
+                  value == null || value.trim().isEmpty ? 'กรุณาระบุระยะเวลาเดินทาง' : null,
             ),
           ],
         ),
@@ -608,12 +605,16 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
     String? Function(String?)? validator,
     TextInputType? keyboardType,
     bool readOnly = false,
+    TextCapitalization textCapitalization = TextCapitalization.none,
+    List<TextInputFormatter>? inputFormatters,
   }) {
     return TextFormField(
       controller: controller,
       validator: validator,
       keyboardType: keyboardType,
       readOnly: readOnly,
+      textCapitalization: textCapitalization,
+      inputFormatters: inputFormatters,
       decoration: _inputDecoration(label: label, icon: icon),
     );
   }
