@@ -21,6 +21,9 @@ class Tutor {
   /// รหัสผ่านแบบ plaintext (ตัวอย่างเท่านั้น) / Plaintext password (for demo only)
   final String password;
 
+  /// สถานะของติวเตอร์ / Tutor status label
+  final String status;
+
   /// ระยะเวลาในการเดินทางไปสอน / Travel duration to tutoring location
   final String travelDuration;
 
@@ -33,6 +36,15 @@ class Tutor {
   /// รายละเอียดตารางสอน / Teaching schedule details
   final String? teachingSchedule;
 
+  /// ค่าเริ่มต้นของสถานะ / Default tutor status label
+  static const String defaultStatus = 'เป็นครูอยู่';
+
+  /// รายการสถานะที่รองรับ / Supported tutor status options
+  static const List<String> statuses = <String>[
+    defaultStatus,
+    'พักการสอน',
+  ];
+
   /// ค่าเริ่มต้นของระยะเวลาเดินทาง / Default travel duration label
   static const String defaultTravelDuration = '';
 
@@ -42,6 +54,7 @@ class Tutor {
     required this.lineId,
     required this.email,
     required this.password,
+    required this.status,
     required this.travelDuration,
     this.profileImageBase64,
     this.subjects = const <String>[],
@@ -58,10 +71,11 @@ class Tutor {
         : '';
     final String scheduleSnippet =
         teachingSchedule != null && teachingSchedule!.isNotEmpty ? sanitize(teachingSchedule!) : '';
+    final String statusSnippet = sanitize(status.isNotEmpty ? status : defaultStatus);
     final String travelSnippet = travelDuration.isNotEmpty ? sanitize(travelDuration) : '';
     return 'ชื่อเล่น: ${sanitize(nickname)} | เบอร์โทร: ${sanitize(phoneNumber)} | '
         'ไอดีไลน์: ${sanitize(lineId)} | อีเมล: ${sanitize(email)} | รหัสผ่าน: ${sanitize(password)} | '
-        'ระยะเวลาเดินทาง: $travelSnippet | รูปโปรไฟล์: $imageSnippet | วิชาที่สอน: $subjectsSnippet | '
+        'สถานะ: $statusSnippet | ระยะเวลาเดินทาง: $travelSnippet | รูปโปรไฟล์: $imageSnippet | วิชาที่สอน: $subjectsSnippet | '
         'ตารางสอน: $scheduleSnippet';
   }
 
@@ -99,8 +113,22 @@ class Tutor {
     final String? lineId = findValue('ไอดีไลน์');
     final String? email = findValue('อีเมล');
     final String? password = findValue('รหัสผ่าน');
-    final String travelDurationValue =
-        (findValue('ระยะเวลาเดินทาง') ?? findValue('สถานะ') ?? defaultTravelDuration).trim();
+    final String? rawStatus = findValue('สถานะ');
+    final String? rawTravel = findValue('ระยะเวลาเดินทาง');
+    String statusValue = rawStatus == null || rawStatus.trim().isEmpty
+        ? defaultStatus
+        : rawStatus.trim();
+    String travelDurationValue = defaultTravelDuration;
+    if (rawTravel != null && rawTravel.trim().isNotEmpty) {
+      final String trimmedTravel = rawTravel.trim();
+      if (statuses.contains(trimmedTravel) || trimmedTravel == defaultStatus) {
+        statusValue = statusValue.isEmpty || statusValue == defaultStatus
+            ? trimmedTravel
+            : statusValue;
+      } else {
+        travelDurationValue = trimmedTravel;
+      }
+    }
     final String? profileImageBase64 = findValue('รูปโปรไฟล์');
     final String? subjectsValue = findValue('วิชาที่สอน');
     final List<String> subjects = subjectsValue == null || subjectsValue.trim().isEmpty
@@ -123,6 +151,7 @@ class Tutor {
       lineId: lineId,
       email: email,
       password: password,
+      status: statusValue,
       travelDuration: travelDurationValue,
       profileImageBase64: profileImageBase64,
       subjects: subjects,
@@ -137,6 +166,7 @@ class Tutor {
     String? lineId,
     String? email,
     String? password,
+    String? status,
     String? travelDuration,
     String? profileImageBase64,
     List<String>? subjects,
@@ -148,6 +178,7 @@ class Tutor {
       lineId: lineId ?? this.lineId,
       email: email ?? this.email,
       password: password ?? this.password,
+      status: status ?? this.status,
       travelDuration: travelDuration ?? this.travelDuration,
       profileImageBase64: profileImageBase64 ?? this.profileImageBase64,
       subjects: subjects ?? this.subjects,
@@ -254,7 +285,7 @@ class AuthProvider extends ChangeNotifier {
       ..writeln('# วิธีดูข้อมูลที่จัดเก็บไว้: เปิดไฟล์นี้ด้วยแอปจัดการไฟล์หรือเทอร์มินัล')
       ..writeln('# ที่อยู่ไฟล์: $normalizedPath')
       ..writeln('# ตัวอย่างคำสั่ง: cat "$normalizedPath"')
-      ..writeln('# ฟอร์แมตข้อมูล: ชื่อเล่น | เบอร์โทร | ไอดีไลน์ | อีเมล | รหัสผ่าน | ระยะเวลาเดินทาง | รูปโปรไฟล์ (Base64) | วิชาที่สอน | ตารางสอน')
+      ..writeln('# ฟอร์แมตข้อมูล: ชื่อเล่น | เบอร์โทร | ไอดีไลน์ | อีเมล | รหัสผ่าน | สถานะ | ระยะเวลาเดินทาง | รูปโปรไฟล์ (Base64) | วิชาที่สอน | ตารางสอน')
       ..writeln();
     for (final Tutor tutor in tutors) {
       buffer.writeln(tutor.toStorageLine());
@@ -282,6 +313,7 @@ class AuthProvider extends ChangeNotifier {
       lineId: lineId,
       email: email,
       password: password,
+      status: Tutor.defaultStatus,
       travelDuration: Tutor.defaultTravelDuration,
       profileImageBase64: profileImageBase64,
       subjects: const <String>[],

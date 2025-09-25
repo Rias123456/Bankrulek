@@ -103,7 +103,7 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
     final String subjectsSignature = tutor.subjects.join(',');
     final String scheduleSignature = tutor.teachingSchedule ?? '';
     final String imageSignature = tutor.profileImageBase64 ?? '';
-    return '${tutor.email}|${tutor.nickname}|${tutor.phoneNumber}|${tutor.lineId}|${tutor.travelDuration}|'
+    return '${tutor.email}|${tutor.nickname}|${tutor.phoneNumber}|${tutor.lineId}|${tutor.status}|${tutor.travelDuration}|'
         '$subjectsSignature|$scheduleSignature|$imageSignature';
   }
 
@@ -414,6 +414,28 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
               fontSize: 24,
               fontWeight: FontWeight.w700,
               color: Color(0xFF4A4A4A),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.75),
+              borderRadius: BorderRadius.circular(24),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                const Icon(Icons.flag, size: 18, color: Color(0xFF4A4A4A)),
+                const SizedBox(width: 8),
+                Text(
+                  'สถานะ: ${tutor.status}',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF4A4A4A),
+                  ),
+                ),
+              ],
             ),
           ),
           const SizedBox(height: 12),

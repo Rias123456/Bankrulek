@@ -22,6 +22,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     final TextEditingController passwordController = TextEditingController(text: tutor.password);
     final TextEditingController travelDurationController =
         TextEditingController(text: tutor.travelDuration);
+    String selectedStatus = tutor.status;
     bool isSaving = false;
 
     await showDialog<void>(
@@ -29,6 +30,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       builder: (BuildContext dialogContext) {
         return StatefulBuilder(
           builder: (BuildContext dialogContext, StateSetter setDialogState) {
+            final List<String> statusOptions = List<String>.from(Tutor.statuses);
+            if (!statusOptions.contains(selectedStatus)) {
+              statusOptions.add(selectedStatus);
+            }
             return AlertDialog(
               title: const Text('แก้ไขข้อมูลผู้ใช้'),
               content: SingleChildScrollView(
@@ -76,6 +81,28 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                         labelText: 'รหัสผ่าน',
                         border: OutlineInputBorder(),
                       ),
+                    ),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      value: selectedStatus,
+                      decoration: const InputDecoration(
+                        labelText: 'สถานะ',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: statusOptions
+                          .map(
+                            (String status) => DropdownMenuItem<String>(
+                              value: status,
+                              child: Text(status),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (String? value) {
+                        if (value == null) {
+                          return;
+                        }
+                        setDialogState(() => selectedStatus = value);
+                      },
                     ),
                     const SizedBox(height: 12),
                     TextField(
@@ -136,6 +163,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                             lineId: lineId,
                             email: email,
                             password: password,
+                            status: selectedStatus,
                             travelDuration: travelDuration,
                           );
                           final String? error = await authProvider.updateTutor(
@@ -236,6 +264,61 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         SnackBar(content: Text('ลบ ${tutor.nickname} เรียบร้อย')),
       );
     }
+  }
+
+  Future<void> _showStatusPicker(Tutor tutor) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      builder: (BuildContext sheetContext) {
+        final List<String> options = List<String>.from(Tutor.statuses);
+        if (!options.contains(tutor.status)) {
+          options.add(tutor.status);
+        }
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const ListTile(
+                title: Text('เลือกสถานะผู้ใช้'),
+              ),
+              for (final String status in options)
+                ListTile(
+                  leading: Icon(
+                    status == tutor.status ? Icons.radio_button_checked : Icons.radio_button_off,
+                  ),
+                  title: Text(status),
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    if (status != tutor.status) {
+                      _updateTutorStatus(tutor, status);
+                    }
+                  },
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _updateTutorStatus(Tutor tutor, String newStatus) async {
+    final AuthProvider authProvider = context.read<AuthProvider>();
+    final String? error = await authProvider.updateTutor(
+      originalEmail: tutor.email,
+      updatedTutor: tutor.copyWith(status: newStatus),
+    );
+    if (!mounted) {
+      return;
+    }
+    if (error != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error)),
+      );
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('อัปเดตสถานะเรียบร้อย: $newStatus')),
+    );
   }
 
   Future<void> _showTravelDurationEditor(Tutor tutor) async {
@@ -426,6 +509,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                           runSpacing: 12,
                           alignment: WrapAlignment.start,
                           children: [
+                            FilledButton.tonalIcon(
+                              onPressed: () => _showStatusPicker(tutor),
+                              icon: const Icon(Icons.flag),
+                              label: Text('สถานะ: ${tutor.status}'),
+                            ),
                             FilledButton.tonalIcon(
                               onPressed: () => _showTravelDurationEditor(tutor),
                               icon: const Icon(Icons.timer),
