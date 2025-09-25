@@ -1,5 +1,7 @@
 import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/auth_provider.dart';
@@ -55,7 +57,6 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
       .toList(growable: false);
 
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
-
   final TextEditingController _nicknameController = TextEditingController();
   final TextEditingController _phoneController = TextEditingController();
   final TextEditingController _lineIdController = TextEditingController();
@@ -64,6 +65,8 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
 
   String _selectedStatus = Tutor.defaultStatus;
   List<String> _selectedSubjects = <String>[];
+  String? _profileImageBase64;
+  final ImagePicker _imagePicker = ImagePicker();
   bool _isSaving = false;
   String? _lastSyncedSignature;
 
@@ -82,6 +85,7 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
     if (_lastSyncedSignature == signature) {
       return;
     }
+
     _nicknameController.text = tutor.nickname;
     _phoneController.text = tutor.phoneNumber;
     _lineIdController.text = tutor.lineId;
@@ -89,14 +93,16 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
     _selectedStatus = tutor.status;
     _selectedSubjects = List<String>.from(tutor.subjects);
     _scheduleController.text = tutor.teachingSchedule ?? '';
+    _profileImageBase64 = tutor.profileImageBase64;
     _lastSyncedSignature = signature;
   }
 
   String _buildTutorSignature(Tutor tutor) {
     final String subjectsSignature = tutor.subjects.join(',');
     final String scheduleSignature = tutor.teachingSchedule ?? '';
+    final String imageSignature = tutor.profileImageBase64 ?? '';
     return '${tutor.email}|${tutor.nickname}|${tutor.phoneNumber}|${tutor.lineId}|${tutor.status}|'
-        '$subjectsSignature|$scheduleSignature';
+        '$subjectsSignature|$scheduleSignature|$imageSignature';
   }
 
   ImageProvider<Object>? _buildProfileImage(String? base64Data) {
@@ -114,6 +120,7 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
     if (!_formKey.currentState!.validate()) {
       return;
     }
+
     final AuthProvider authProvider = context.read<AuthProvider>();
     final Tutor? currentTutor = authProvider.currentTutor;
     if (currentTutor == null) {
@@ -122,8 +129,8 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
       );
       return;
     }
-    setState(() => _isSaving = true);
 
+    setState(() => _isSaving = true);
     final Tutor updatedTutor = currentTutor.copyWith(
       nickname: _nicknameController.text.trim(),
       phoneNumber: _phoneController.text.trim(),
@@ -131,9 +138,10 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
       email: _emailController.text.trim(),
       status: _selectedStatus,
       subjects: List<String>.from(_selectedSubjects),
-      teachingSchedule: _scheduleController.text.trim().isEmpty
-          ? null
-          : _scheduleController.text.trim(),
+      profileImageBase64:
+          _profileImageBase64 == null || _profileImageBase64!.isEmpty ? null : _profileImageBase64,
+      teachingSchedule:
+          _scheduleController.text.trim().isEmpty ? null : _scheduleController.text.trim(),
     );
 
     final String? error = await authProvider.updateTutor(
@@ -141,7 +149,10 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
       updatedTutor: updatedTutor,
     );
 
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
+
     setState(() => _isSaving = false);
 
     if (error != null) {
@@ -168,7 +179,6 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
 
   Future<void> _showSubjectPicker() async {
     final Set<String> tempSelected = Set<String>.from(_selectedSubjects);
-
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -264,64 +274,164 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
     );
   }
 
-  /// ✅ แก้ไข Header ให้แสดงเฉพาะภาพ + ชื่อเล่น + ปุ่มแก้ไข
+  Future<void> _pickProfileImage() async {
+    try {
+      final XFile? file = await _imagePicker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 1200,
+        imageQuality: 85,
+      );
+      if (file == null) {
+        return;
+      }
+      final String encoded = base64Encode(await file.readAsBytes());
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _profileImageBase64 = encoded;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('ไม่สามารถเลือกรูปได้: $error')),
+      );
+    }
+  }
+
+  void _removeProfileImage() {
+    setState(() {
+      _profileImageBase64 = '';
+    });
+  }
+
+  Future<void> _showImageOptions() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (BuildContext context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              ListTile(
+                leading: const Icon(Icons.photo_library_outlined),
+                title: const Text('เลือกรูปจากแกลเลอรี'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _pickProfileImage();
+                },
+              ),
+              if (_profileImageBase64 != null && _profileImageBase64!.isNotEmpty)
+                ListTile(
+                  leading: const Icon(Icons.delete_outline),
+                  title: const Text('ลบรูปโปรไฟล์'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _removeProfileImage();
+                  },
+                ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   Widget _buildHeaderCard(Tutor tutor) {
-    final ImageProvider<Object>? imageProvider =
-        _buildProfileImage(tutor.profileImageBase64);
+    final String? imageData =
+        _profileImageBase64 ?? tutor.profileImageBase64;
+    final ImageProvider<Object>? imageProvider = _buildProfileImage(imageData);
+    final String nicknameDisplay =
+        _nicknameController.text.trim().isEmpty ? tutor.nickname : _nicknameController.text.trim();
 
-    final String nicknameDisplay = _nicknameController.text.trim().isEmpty
-        ? tutor.nickname
-        : _nicknameController.text.trim();
-
-    return Card(
-      color: Colors.white,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      elevation: 2,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Stack(
-              alignment: Alignment.bottomRight,
-              children: [
-                CircleAvatar(
+    return Container(
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: <Color>[Color(0xFFFFC1D0), Color(0xFFFFE4E1)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(28),
+        boxShadow: const <BoxShadow>[
+          BoxShadow(
+            color: Color(0x22000000),
+            blurRadius: 12,
+            offset: Offset(0, 6),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: <Widget>[
+          Stack(
+            alignment: Alignment.bottomRight,
+            children: <Widget>[
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.white.withOpacity(0.65),
+                ),
+                child: CircleAvatar(
                   radius: 50,
                   backgroundColor: const Color(0xFFFFF5F5),
                   backgroundImage: imageProvider,
                   child: imageProvider == null
-                      ? const Icon(Icons.person, size: 50, color: Colors.grey)
+                      ? const Icon(Icons.person, size: 52, color: Colors.grey)
                       : null,
                 ),
-                InkWell(
-                  onTap: () {
-                    // TODO: เพิ่มฟังก์ชันเลือกรูป
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text("กดเพื่อเปลี่ยนรูปโปรไฟล์")),
-                    );
-                  },
-                  child: Container(
-                    padding: const EdgeInsets.all(6),
-                    decoration: const BoxDecoration(
-                      color: Colors.white,
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(Icons.edit,
-                        size: 20, color: Colors.blueAccent),
+              ),
+              Positioned(
+                bottom: 4,
+                right: 4,
+                child: Material(
+                  color: Colors.white,
+                  shape: const CircleBorder(),
+                  elevation: 2,
+                  child: IconButton(
+                    icon: const Icon(Icons.camera_alt_outlined),
+                    tooltip: 'แก้ไขรูปโปรไฟล์',
+                    onPressed: _showImageOptions,
                   ),
                 ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'ครู$nicknameDisplay',
-              style: const TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
               ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          Text(
+            'ครู$nicknameDisplay',
+            style: const TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF4A4A4A),
             ),
-          ],
-        ),
+          ),
+          const SizedBox(height: 12),
+          TextButton.icon(
+            onPressed: _showImageOptions,
+            icon: const Icon(Icons.edit_outlined),
+            label: const Text('เปลี่ยนรูปโปรไฟล์'),
+            style: TextButton.styleFrom(
+              foregroundColor: Colors.pink.shade500,
+            ),
+          ),
+          if (_profileImageBase64 != null && _profileImageBase64!.isNotEmpty)
+            TextButton(
+              onPressed: _removeProfileImage,
+              style: TextButton.styleFrom(
+                foregroundColor: Colors.grey.shade700,
+              ),
+              child: const Text('ลบรูปออก'),
+            ),
+        ],
       ),
     );
   }
@@ -346,9 +456,7 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
               label: 'ชื่อเล่น',
               icon: Icons.person,
               validator: (String? value) =>
-                  value == null || value.trim().isEmpty
-                      ? 'กรุณากรอกชื่อเล่น'
-                      : null,
+                  value == null || value.trim().isEmpty ? 'กรุณากรอกชื่อเล่น' : null,
             ),
             const SizedBox(height: 16),
             _buildTextField(
@@ -357,9 +465,7 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
               icon: Icons.phone,
               keyboardType: TextInputType.phone,
               validator: (String? value) =>
-                  value == null || value.trim().isEmpty
-                      ? 'กรุณากรอกเบอร์โทรศัพท์'
-                      : null,
+                  value == null || value.trim().isEmpty ? 'กรุณากรอกเบอร์โทรศัพท์' : null,
             ),
             const SizedBox(height: 16),
             _buildTextField(
@@ -367,9 +473,7 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
               label: 'ID LINE',
               icon: Icons.chat,
               validator: (String? value) =>
-                  value == null || value.trim().isEmpty
-                      ? 'กรุณากรอก ID LINE'
-                      : null,
+                  value == null || value.trim().isEmpty ? 'กรุณากรอก ID LINE' : null,
             ),
             const SizedBox(height: 16),
             _buildTextField(
@@ -389,7 +493,9 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
                       ))
                   .toList(),
               onChanged: (String? value) {
-                if (value == null) return;
+                if (value == null) {
+                  return;
+                }
                 setState(() => _selectedStatus = value);
               },
             ),
