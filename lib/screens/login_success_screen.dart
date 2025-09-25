@@ -345,118 +345,67 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
     );
   }
 
-  Widget _buildHeaderCard(Tutor tutor) {
+  Widget _buildHeaderSection(Tutor tutor) {
     final String? imageData =
         _profileImageBase64 ?? tutor.profileImageBase64;
     final ImageProvider<Object>? imageProvider = _buildProfileImage(imageData);
     final String nicknameDisplay =
         _nicknameController.text.trim().isEmpty ? tutor.nickname : _nicknameController.text.trim();
 
-    return Container(
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: <Color>[Color(0xFFFFC1D0), Color(0xFFFFE4E1)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: <Widget>[
+        Stack(
+          alignment: Alignment.bottomRight,
+          children: <Widget>[
+            CircleAvatar(
+              radius: 56,
+              backgroundColor: Colors.transparent,
+              backgroundImage: imageProvider,
+              child: imageProvider == null
+                  ? const Icon(Icons.person, size: 58, color: Colors.grey)
+                  : null,
+            ),
+            Material(
+              color: Colors.white,
+              shape: const CircleBorder(),
+              elevation: 2,
+              child: IconButton(
+                icon: const Icon(Icons.camera_alt_outlined),
+                tooltip: 'แก้ไขรูปโปรไฟล์',
+                onPressed: _showImageOptions,
+              ),
+            ),
+          ],
         ),
-        borderRadius: BorderRadius.circular(28),
-        boxShadow: const <BoxShadow>[
-          BoxShadow(
-            color: Color(0x22000000),
-            blurRadius: 12,
-            offset: Offset(0, 6),
+        const SizedBox(height: 16),
+        Text(
+          'ครู$nicknameDisplay',
+          style: const TextStyle(
+            fontSize: 24,
+            fontWeight: FontWeight.w700,
+            color: Color(0xFF4A4A4A),
           ),
-        ],
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: <Widget>[
-          Stack(
-            alignment: Alignment.bottomRight,
-            children: <Widget>[
-              Container(
-                padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.white.withOpacity(0.65),
-                ),
-                child: CircleAvatar(
-                  radius: 50,
-                  backgroundColor: const Color(0xFFFFF5F5),
-                  backgroundImage: imageProvider,
-                  child: imageProvider == null
-                      ? const Icon(Icons.person, size: 52, color: Colors.grey)
-                      : null,
-                ),
-              ),
-              Positioned(
-                bottom: 4,
-                right: 4,
-                child: Material(
-                  color: Colors.white,
-                  shape: const CircleBorder(),
-                  elevation: 2,
-                  child: IconButton(
-                    icon: const Icon(Icons.camera_alt_outlined),
-                    tooltip: 'แก้ไขรูปโปรไฟล์',
-                    onPressed: _showImageOptions,
-                  ),
-                ),
-              ),
-            ],
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 12),
+        TextButton.icon(
+          onPressed: _showImageOptions,
+          icon: const Icon(Icons.edit_outlined),
+          label: const Text('เปลี่ยนรูปโปรไฟล์'),
+          style: TextButton.styleFrom(
+            foregroundColor: Colors.pink.shade500,
           ),
-          const SizedBox(height: 18),
-          Text(
-            'ครู$nicknameDisplay',
-            style: const TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.w700,
-              color: Color(0xFF4A4A4A),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.75),
-              borderRadius: BorderRadius.circular(24),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                const Icon(Icons.flag, size: 18, color: Color(0xFF4A4A4A)),
-                const SizedBox(width: 8),
-                Text(
-                  'สถานะ: ${tutor.status}',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF4A4A4A),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 12),
-          TextButton.icon(
-            onPressed: _showImageOptions,
-            icon: const Icon(Icons.edit_outlined),
-            label: const Text('เปลี่ยนรูปโปรไฟล์'),
+        ),
+        if (_profileImageBase64 != null && _profileImageBase64!.isNotEmpty)
+          TextButton(
+            onPressed: _removeProfileImage,
             style: TextButton.styleFrom(
-              foregroundColor: Colors.pink.shade500,
+              foregroundColor: Colors.grey.shade700,
             ),
+            child: const Text('ลบรูปออก'),
           ),
-          if (_profileImageBase64 != null && _profileImageBase64!.isNotEmpty)
-            TextButton(
-              onPressed: _removeProfileImage,
-              style: TextButton.styleFrom(
-                foregroundColor: Colors.grey.shade700,
-              ),
-              child: const Text('ลบรูปออก'),
-            ),
-        ],
-      ),
+      ],
     );
   }
 
@@ -470,11 +419,6 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            const Text(
-              'ข้อมูลส่วนตัว',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 16),
             _buildTextField(
               controller: _nicknameController,
               label: 'ชื่อเล่น',
@@ -707,7 +651,7 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: <Widget>[
-                  _buildHeaderCard(tutor),
+                  _buildHeaderSection(tutor),
                   const SizedBox(height: 16),
                   _buildInformationCard(),
                   const SizedBox(height: 16),
