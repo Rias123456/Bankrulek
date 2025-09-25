@@ -590,6 +590,7 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
         title: const Text('โปรไฟล์ติวเตอร์'),
         backgroundColor: const Color(0xFFFFE4E1),
         elevation: 0,
+        toolbarHeight: 48,
       ),
       body: Consumer<AuthProvider>(
         builder: (BuildContext context, AuthProvider authProvider, _) {
@@ -607,12 +608,12 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
           return Form(
             key: _formKey,
             child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
+              padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: <Widget>[
                   _buildHeaderSection(tutor),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 12),
                   _buildInformationCard(),
                   const SizedBox(height: 16),
                   _buildSubjectCard(),
