@@ -61,7 +61,6 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
   final TextEditingController _nicknameController = TextEditingController();
   final TextEditingController _phoneController = TextEditingController();
   final TextEditingController _lineIdController = TextEditingController();
-  final TextEditingController _emailController = TextEditingController();
   final TextEditingController _scheduleController = TextEditingController();
   final TextEditingController _travelDurationController = TextEditingController();
 
@@ -76,7 +75,6 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
     _nicknameController.dispose();
     _phoneController.dispose();
     _lineIdController.dispose();
-    _emailController.dispose();
     _scheduleController.dispose();
     _travelDurationController.dispose();
     super.dispose();
@@ -91,7 +89,6 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
     _nicknameController.text = tutor.nickname;
     _phoneController.text = tutor.phoneNumber;
     _lineIdController.text = tutor.lineId;
-    _emailController.text = tutor.email;
     _travelDurationController.text = tutor.travelDuration;
     _selectedSubjects = List<String>.from(tutor.subjects);
     _scheduleController.text = tutor.teachingSchedule ?? '';
@@ -137,7 +134,6 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
       nickname: _nicknameController.text.trim(),
       phoneNumber: _phoneController.text.trim(),
       lineId: _lineIdController.text.trim(),
-      email: _emailController.text.trim(),
       travelDuration: _travelDurationController.text.trim(),
       subjects: List<String>.from(_selectedSubjects),
       profileImageBase64:
@@ -417,13 +413,6 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
               icon: Icons.chat,
               validator: (String? value) =>
                   value == null || value.trim().isEmpty ? 'กรุณากรอก ID LINE' : null,
-            ),
-            const SizedBox(height: 16),
-            _buildTextField(
-              controller: _emailController,
-              label: 'อีเมล (สำหรับเข้าสู่ระบบ)',
-              icon: Icons.email,
-              readOnly: true,
             ),
             const SizedBox(height: 16),
             _buildTextField(
