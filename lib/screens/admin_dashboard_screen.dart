@@ -20,7 +20,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     final TextEditingController lineIdController = TextEditingController(text: tutor.lineId);
     final TextEditingController emailController = TextEditingController(text: tutor.email);
     final TextEditingController passwordController = TextEditingController(text: tutor.password);
-    String selectedStatus = tutor.status;
+    final TextEditingController travelDurationController =
+        TextEditingController(text: tutor.travelDuration);
     bool isSaving = false;
 
     await showDialog<void>(
@@ -28,10 +29,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       builder: (BuildContext dialogContext) {
         return StatefulBuilder(
           builder: (BuildContext dialogContext, StateSetter setDialogState) {
-            final List<String> statusOptions = List<String>.from(Tutor.statuses);
-            if (!statusOptions.contains(selectedStatus)) {
-              statusOptions.add(selectedStatus);
-            }
             return AlertDialog(
               title: const Text('แก้ไขข้อมูลผู้ใช้'),
               content: SingleChildScrollView(
@@ -81,26 +78,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                       ),
                     ),
                     const SizedBox(height: 12),
-                    DropdownButtonFormField<String>(
-                      value: selectedStatus,
+                    TextField(
+                      controller: travelDurationController,
                       decoration: const InputDecoration(
-                        labelText: 'สถานะ',
+                        labelText: 'ระยะเวลาเดินทางมาสอน',
+                        hintText: 'เช่น 30 นาที',
                         border: OutlineInputBorder(),
                       ),
-                      items: statusOptions
-                          .map(
-                            (String status) => DropdownMenuItem<String>(
-                              value: status,
-                              child: Text(status),
-                            ),
-                          )
-                          .toList(),
-                      onChanged: (String? value) {
-                        if (value == null) {
-                          return;
-                        }
-                        setDialogState(() => selectedStatus = value);
-                      },
                     ),
                   ],
                 ),
@@ -119,6 +103,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                           final String lineId = lineIdController.text.trim();
                           final String email = emailController.text.trim();
                           final String password = passwordController.text.trim();
+                          final String travelDuration = travelDurationController.text.trim();
                           if (nickname.isEmpty || phoneNumber.isEmpty || lineId.isEmpty || email.isEmpty || password.isEmpty) {
                             ScaffoldMessenger.of(this.context).showSnackBar(
                               const SnackBar(
@@ -135,6 +120,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                             );
                             return;
                           }
+                          if (travelDuration.isEmpty) {
+                            ScaffoldMessenger.of(this.context).showSnackBar(
+                              const SnackBar(
+                                content: Text('กรุณาระบุระยะเวลาเดินทาง'),
+                              ),
+                            );
+                            return;
+                          }
                           setDialogState(() => isSaving = true);
                           final AuthProvider authProvider = this.context.read<AuthProvider>();
                           final Tutor updatedTutor = tutor.copyWith(
@@ -143,7 +136,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                             lineId: lineId,
                             email: email,
                             password: password,
-                            status: selectedStatus,
+                            travelDuration: travelDuration,
                           );
                           final String? error = await authProvider.updateTutor(
                             originalEmail: tutor.email,
@@ -184,6 +177,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     lineIdController.dispose();
     emailController.dispose();
     passwordController.dispose();
+    travelDurationController.dispose();
   }
 
   Future<void> _showDeleteTutorDialog(Tutor tutor) async {
@@ -244,59 +238,103 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     }
   }
 
-  Future<void> _showStatusPicker(Tutor tutor) async {
+  Future<void> _showTravelDurationEditor(Tutor tutor) async {
+    final TextEditingController controller = TextEditingController(text: tutor.travelDuration);
+    bool isSaving = false;
+
     await showModalBottomSheet<void>(
       context: context,
+      isScrollControlled: true,
       builder: (BuildContext sheetContext) {
-        final List<String> options = List<String>.from(Tutor.statuses);
-        if (!options.contains(tutor.status)) {
-          options.add(tutor.status);
-        }
-        return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const ListTile(
-                title: Text('เลือกสถานะผู้ใช้'),
+        return StatefulBuilder(
+          builder: (BuildContext context, StateSetter setState) {
+            return Padding(
+              padding: EdgeInsets.only(
+                left: 16,
+                right: 16,
+                top: 16,
+                bottom: 16 + MediaQuery.of(sheetContext).viewInsets.bottom,
               ),
-              for (final String status in options)
-                ListTile(
-                  leading: Icon(
-                    status == tutor.status ? Icons.radio_button_checked : Icons.radio_button_off,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Text(
+                    'แก้ไขระยะเวลาเดินทาง',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                   ),
-                  title: Text(status),
-                  onTap: () {
-                    Navigator.of(sheetContext).pop();
-                    if (status != tutor.status) {
-                      _updateTutorStatus(tutor, status);
-                    }
-                  },
-                ),
-            ],
-          ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: controller,
+                    decoration: const InputDecoration(
+                      labelText: 'ระยะเวลาเดินทางมาสอน',
+                      hintText: 'เช่น 30 นาที',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: isSaving ? null : () => Navigator.of(sheetContext).pop(),
+                          child: const Text('ยกเลิก'),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: FilledButton(
+                          onPressed: isSaving
+                              ? null
+                              : () async {
+                                  final String value = controller.text.trim();
+                                  if (value.isEmpty) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(content: Text('กรุณาระบุระยะเวลาเดินทาง')),
+                                    );
+                                    return;
+                                  }
+                                  setState(() => isSaving = true);
+                                  final AuthProvider authProvider = this.context.read<AuthProvider>();
+                                  final String? error = await authProvider.updateTutor(
+                                    originalEmail: tutor.email,
+                                    updatedTutor: tutor.copyWith(travelDuration: value),
+                                  );
+                                  if (!mounted) {
+                                    return;
+                                  }
+                                  if (error != null) {
+                                    setState(() => isSaving = false);
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(content: Text(error)),
+                                    );
+                                    return;
+                                  }
+                                  Navigator.of(sheetContext).pop();
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(content: Text('อัปเดตระยะเวลาเดินทางเรียบร้อย: $value')),
+                                  );
+                                },
+                          child: isSaving
+                              ? const SizedBox(
+                                  height: 20,
+                                  width: 20,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : const Text('บันทึก'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            );
+          },
         );
       },
     );
-  }
 
-  Future<void> _updateTutorStatus(Tutor tutor, String newStatus) async {
-    final AuthProvider authProvider = context.read<AuthProvider>();
-    final String? error = await authProvider.updateTutor(
-      originalEmail: tutor.email,
-      updatedTutor: tutor.copyWith(status: newStatus),
-    );
-    if (!mounted) {
-      return;
-    }
-    if (error != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error)),
-      );
-      return;
-    }
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('อัปเดตสถานะเรียบร้อย: $newStatus')), 
-    );
+    controller.dispose();
   }
 
   @override
@@ -389,9 +427,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                           alignment: WrapAlignment.start,
                           children: [
                             FilledButton.tonalIcon(
-                              onPressed: () => _showStatusPicker(tutor),
-                              icon: const Icon(Icons.flag),
-                              label: Text('สถานะ: ${tutor.status}'),
+                              onPressed: () => _showTravelDurationEditor(tutor),
+                              icon: const Icon(Icons.timer),
+                              label: Text(
+                                tutor.travelDuration.isEmpty
+                                    ? 'ระยะเวลาเดินทาง: ยังไม่ระบุ'
+                                    : 'ระยะเวลาเดินทาง: ${tutor.travelDuration}',
+                              ),
                             ),
                             OutlinedButton.icon(
                               onPressed: () => _showEditTutorDialog(tutor),
