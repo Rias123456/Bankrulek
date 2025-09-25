@@ -355,28 +355,16 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: <Widget>[
-        Stack(
-          alignment: Alignment.bottomRight,
-          children: <Widget>[
-            CircleAvatar(
-              radius: 56,
-              backgroundColor: Colors.transparent,
-              backgroundImage: imageProvider,
-              child: imageProvider == null
-                  ? const Icon(Icons.person, size: 58, color: Colors.grey)
-                  : null,
-            ),
-            Material(
-              color: Colors.white,
-              shape: const CircleBorder(),
-              elevation: 2,
-              child: IconButton(
-                icon: const Icon(Icons.camera_alt_outlined),
-                tooltip: 'แก้ไขรูปโปรไฟล์',
-                onPressed: _showImageOptions,
-              ),
-            ),
-          ],
+        GestureDetector(
+          onTap: _showImageOptions,
+          child: CircleAvatar(
+            radius: 56,
+            backgroundColor: Colors.transparent,
+            backgroundImage: imageProvider,
+            child: imageProvider == null
+                ? const Icon(Icons.person, size: 58, color: Colors.grey)
+                : null,
+          ),
         ),
         const SizedBox(height: 16),
         Text(
@@ -388,23 +376,6 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
           ),
           textAlign: TextAlign.center,
         ),
-        const SizedBox(height: 12),
-        TextButton.icon(
-          onPressed: _showImageOptions,
-          icon: const Icon(Icons.edit_outlined),
-          label: const Text('เปลี่ยนรูปโปรไฟล์'),
-          style: TextButton.styleFrom(
-            foregroundColor: Colors.pink.shade500,
-          ),
-        ),
-        if (_profileImageBase64 != null && _profileImageBase64!.isNotEmpty)
-          TextButton(
-            onPressed: _removeProfileImage,
-            style: TextButton.styleFrom(
-              foregroundColor: Colors.grey.shade700,
-            ),
-            child: const Text('ลบรูปออก'),
-          ),
       ],
     );
   }
