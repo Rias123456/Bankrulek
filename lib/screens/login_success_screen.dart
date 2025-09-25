@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/auth_provider.dart';
@@ -64,6 +65,8 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
 
   String _selectedStatus = Tutor.defaultStatus;
   List<String> _selectedSubjects = <String>[];
+  String? _profileImageBase64;
+  final ImagePicker _imagePicker = ImagePicker();
   bool _isSaving = false;
   String? _lastSyncedSignature;
 
@@ -90,14 +93,16 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
     _selectedStatus = tutor.status;
     _selectedSubjects = List<String>.from(tutor.subjects);
     _scheduleController.text = tutor.teachingSchedule ?? '';
+    _profileImageBase64 = tutor.profileImageBase64;
     _lastSyncedSignature = signature;
   }
 
   String _buildTutorSignature(Tutor tutor) {
     final String subjectsSignature = tutor.subjects.join(',');
     final String scheduleSignature = tutor.teachingSchedule ?? '';
+    final String imageSignature = tutor.profileImageBase64 ?? '';
     return '${tutor.email}|${tutor.nickname}|${tutor.phoneNumber}|${tutor.lineId}|${tutor.status}|'
-        '$subjectsSignature|$scheduleSignature';
+        '$subjectsSignature|$scheduleSignature|$imageSignature';
   }
 
   ImageProvider<Object>? _buildProfileImage(String? base64Data) {
@@ -133,6 +138,8 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
       email: _emailController.text.trim(),
       status: _selectedStatus,
       subjects: List<String>.from(_selectedSubjects),
+      profileImageBase64:
+          _profileImageBase64 == null || _profileImageBase64!.isEmpty ? null : _profileImageBase64,
       teachingSchedule:
           _scheduleController.text.trim().isEmpty ? null : _scheduleController.text.trim(),
     );
@@ -267,14 +274,81 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
     );
   }
 
+  Future<void> _pickProfileImage() async {
+    try {
+      final XFile? file = await _imagePicker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 1200,
+        imageQuality: 85,
+      );
+      if (file == null) {
+        return;
+      }
+      final String encoded = base64Encode(await file.readAsBytes());
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _profileImageBase64 = encoded;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('ไม่สามารถเลือกรูปได้: $error')),
+      );
+    }
+  }
+
+  void _removeProfileImage() {
+    setState(() {
+      _profileImageBase64 = '';
+    });
+  }
+
+  Future<void> _showImageOptions() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (BuildContext context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              ListTile(
+                leading: const Icon(Icons.photo_library_outlined),
+                title: const Text('เลือกรูปจากแกลเลอรี'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _pickProfileImage();
+                },
+              ),
+              if (_profileImageBase64 != null && _profileImageBase64!.isNotEmpty)
+                ListTile(
+                  leading: const Icon(Icons.delete_outline),
+                  title: const Text('ลบรูปโปรไฟล์'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _removeProfileImage();
+                  },
+                ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   Widget _buildHeaderCard(Tutor tutor) {
-    final ImageProvider<Object>? imageProvider = _buildProfileImage(tutor.profileImageBase64);
+    final String? imageData =
+        _profileImageBase64 ?? tutor.profileImageBase64;
+    final ImageProvider<Object>? imageProvider = _buildProfileImage(imageData);
     final String nicknameDisplay =
         _nicknameController.text.trim().isEmpty ? tutor.nickname : _nicknameController.text.trim();
-    final String phoneDisplay =
-        _phoneController.text.trim().isEmpty ? tutor.phoneNumber : _phoneController.text.trim();
-    final String lineDisplay =
-        _lineIdController.text.trim().isEmpty ? tutor.lineId : _lineIdController.text.trim();
 
     return Container(
       decoration: BoxDecoration(
@@ -297,20 +371,39 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.center,
         children: <Widget>[
-          Container(
-            padding: const EdgeInsets.all(6),
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: Colors.white.withOpacity(0.65),
-            ),
-            child: CircleAvatar(
-              radius: 50,
-              backgroundColor: const Color(0xFFFFF5F5),
-              backgroundImage: imageProvider,
-              child: imageProvider == null
-                  ? const Icon(Icons.person, size: 52, color: Colors.grey)
-                  : null,
-            ),
+          Stack(
+            alignment: Alignment.bottomRight,
+            children: <Widget>[
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.white.withOpacity(0.65),
+                ),
+                child: CircleAvatar(
+                  radius: 50,
+                  backgroundColor: const Color(0xFFFFF5F5),
+                  backgroundImage: imageProvider,
+                  child: imageProvider == null
+                      ? const Icon(Icons.person, size: 52, color: Colors.grey)
+                      : null,
+                ),
+              ),
+              Positioned(
+                bottom: 4,
+                right: 4,
+                child: Material(
+                  color: Colors.white,
+                  shape: const CircleBorder(),
+                  elevation: 2,
+                  child: IconButton(
+                    icon: const Icon(Icons.camera_alt_outlined),
+                    tooltip: 'แก้ไขรูปโปรไฟล์',
+                    onPressed: _showImageOptions,
+                  ),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 18),
           Text(
@@ -322,47 +415,22 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
             ),
           ),
           const SizedBox(height: 12),
-          Wrap(
-            alignment: WrapAlignment.center,
-            spacing: 12,
-            runSpacing: 10,
-            children: <Widget>[
-              _buildHeaderChip(Icons.flag, _selectedStatus),
-              _buildHeaderChip(Icons.email_outlined, 'อีเมล: ${tutor.email}'),
-              _buildHeaderChip(
-                Icons.phone_outlined,
-                'เบอร์: ${phoneDisplay.isEmpty ? '-' : phoneDisplay}',
-              ),
-              _buildHeaderChip(
-                Icons.chat_bubble_outline,
-                'LINE: ${lineDisplay.isEmpty ? '-' : lineDisplay}',
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildHeaderChip(IconData icon, String value) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.85),
-        borderRadius: BorderRadius.circular(24),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          Icon(icon, size: 18, color: Colors.pink.shade400),
-          const SizedBox(width: 6),
-          Text(
-            value,
-            style: const TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
+          TextButton.icon(
+            onPressed: _showImageOptions,
+            icon: const Icon(Icons.edit_outlined),
+            label: const Text('เปลี่ยนรูปโปรไฟล์'),
+            style: TextButton.styleFrom(
+              foregroundColor: Colors.pink.shade500,
             ),
           ),
+          if (_profileImageBase64 != null && _profileImageBase64!.isNotEmpty)
+            TextButton(
+              onPressed: _removeProfileImage,
+              style: TextButton.styleFrom(
+                foregroundColor: Colors.grey.shade700,
+              ),
+              child: const Text('ลบรูปออก'),
+            ),
         ],
       ),
     );
