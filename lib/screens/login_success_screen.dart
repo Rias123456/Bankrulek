@@ -369,11 +369,6 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
     final ImageProvider<Object>? imageProvider = _buildProfileImage(imageData);
     final String nicknameDisplay =
         _nicknameController.text.trim().isEmpty ? tutor.nickname : _nicknameController.text.trim();
-    String fullNameDisplay = _fullNameController.text.trim();
-    if (fullNameDisplay.isEmpty) {
-      fullNameDisplay = '${tutor.firstName} ${tutor.lastName}'.trim();
-    }
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: <Widget>[
@@ -389,24 +384,14 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
           ),
         ),
         const SizedBox(height: 16),
-        if (fullNameDisplay.isNotEmpty)
-          Text(
-            fullNameDisplay,
-            style: const TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.w700,
-              color: Color(0xFF4A4A4A),
-            ),
-            textAlign: TextAlign.center,
-          ),
         if (nicknameDisplay.isNotEmpty)
           Padding(
             padding: const EdgeInsets.only(top: 4),
             child: Text(
               'ครู$nicknameDisplay',
               style: TextStyle(
-                fontSize: fullNameDisplay.isNotEmpty ? 18 : 24,
-                fontWeight: fullNameDisplay.isNotEmpty ? FontWeight.w500 : FontWeight.w700,
+                fontSize: 24,
+                fontWeight: FontWeight.w700,
                 color: const Color(0xFF5C5C5C),
               ),
               textAlign: TextAlign.center,
