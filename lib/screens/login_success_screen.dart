@@ -58,8 +58,7 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
       .toList(growable: false);
 
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
-  final TextEditingController _firstNameController = TextEditingController();
-  final TextEditingController _lastNameController = TextEditingController();
+  final TextEditingController _fullNameController = TextEditingController();
   final TextEditingController _nicknameController = TextEditingController();
   final TextEditingController _lineIdController = TextEditingController();
   final TextEditingController _phoneController = TextEditingController();
@@ -75,8 +74,7 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
 
   @override
   void dispose() {
-    _firstNameController.dispose();
-    _lastNameController.dispose();
+    _fullNameController.dispose();
     _nicknameController.dispose();
     _lineIdController.dispose();
     _phoneController.dispose();
@@ -92,8 +90,8 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
       return;
     }
 
-    _firstNameController.text = tutor.firstName;
-    _lastNameController.text = tutor.lastName;
+    final String combinedName = '${tutor.firstName} ${tutor.lastName}'.trim();
+    _fullNameController.text = combinedName;
     _nicknameController.text = tutor.nickname;
     _lineIdController.text = tutor.lineId;
     _phoneController.text = tutor.phoneNumber;
@@ -139,9 +137,20 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
     }
 
     setState(() => _isSaving = true);
+    final List<String> nameParts = _fullNameController.text
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((String part) => part.isNotEmpty)
+        .toList();
+    final String parsedFirstName =
+        nameParts.isNotEmpty ? nameParts.first : currentTutor.firstName;
+    final String parsedLastName = nameParts.length > 1
+        ? nameParts.sublist(1).join(' ')
+        : currentTutor.lastName;
+
     final Tutor updatedTutor = currentTutor.copyWith(
-      firstName: _firstNameController.text.trim(),
-      lastName: _lastNameController.text.trim(),
+      firstName: parsedFirstName,
+      lastName: parsedLastName,
       nickname: _nicknameController.text.trim(),
       currentActivity: _currentActivityController.text.trim(),
       phoneNumber: _phoneController.text.trim(),
@@ -360,13 +369,10 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
     final ImageProvider<Object>? imageProvider = _buildProfileImage(imageData);
     final String nicknameDisplay =
         _nicknameController.text.trim().isEmpty ? tutor.nickname : _nicknameController.text.trim();
-    final String firstNameDisplay =
-        _firstNameController.text.trim().isEmpty ? tutor.firstName : _firstNameController.text.trim();
-    final String lastNameDisplay =
-        _lastNameController.text.trim().isEmpty ? tutor.lastName : _lastNameController.text.trim();
-    final String fullName = <String>[firstNameDisplay, lastNameDisplay]
-        .where((String value) => value.isNotEmpty)
-        .join(' ');
+    String fullNameDisplay = _fullNameController.text.trim();
+    if (fullNameDisplay.isEmpty) {
+      fullNameDisplay = '${tutor.firstName} ${tutor.lastName}'.trim();
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.center,
@@ -383,9 +389,9 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
           ),
         ),
         const SizedBox(height: 16),
-        if (fullName.isNotEmpty)
+        if (fullNameDisplay.isNotEmpty)
           Text(
-            fullName,
+            fullNameDisplay,
             style: const TextStyle(
               fontSize: 24,
               fontWeight: FontWeight.w700,
@@ -399,8 +405,8 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
             child: Text(
               'ครู$nicknameDisplay',
               style: TextStyle(
-                fontSize: fullName.isNotEmpty ? 18 : 24,
-                fontWeight: fullName.isNotEmpty ? FontWeight.w500 : FontWeight.w700,
+                fontSize: fullNameDisplay.isNotEmpty ? 18 : 24,
+                fontWeight: fullNameDisplay.isNotEmpty ? FontWeight.w500 : FontWeight.w700,
                 color: const Color(0xFF5C5C5C),
               ),
               textAlign: TextAlign.center,
@@ -421,27 +427,27 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
             _buildTextField(
-              controller: _firstNameController,
-              label: 'ชื่อจริง',
+              controller: _fullNameController,
+              label: 'ชื่อจริง นามสกุล',
               icon: Icons.badge_outlined,
               textCapitalization: TextCapitalization.words,
               inputFormatters: <TextInputFormatter>[
                 FilteringTextInputFormatter.allow(RegExp(r'[a-zA-Zก-๙\s]')),
               ],
-              validator: (String? value) =>
-                  value == null || value.trim().isEmpty ? 'กรุณากรอกชื่อจริง' : null,
-            ),
-            const SizedBox(height: 16),
-            _buildTextField(
-              controller: _lastNameController,
-              label: 'นามสกุล',
-              icon: Icons.badge,
-              textCapitalization: TextCapitalization.words,
-              inputFormatters: <TextInputFormatter>[
-                FilteringTextInputFormatter.allow(RegExp(r'[a-zA-Zก-๙\s]')),
-              ],
-              validator: (String? value) =>
-                  value == null || value.trim().isEmpty ? 'กรุณากรอกนามสกุล' : null,
+              validator: (String? value) {
+                final String trimmed = value?.trim() ?? '';
+                if (trimmed.isEmpty) {
+                  return 'กรุณากรอกชื่อจริงและนามสกุล';
+                }
+                final List<String> parts = trimmed
+                    .split(RegExp(r'\s+'))
+                    .where((String part) => part.isNotEmpty)
+                    .toList();
+                if (parts.length < 2) {
+                  return 'กรุณากรอกชื่อจริงและนามสกุล';
+                }
+                return null;
+              },
             ),
             const SizedBox(height: 16),
             _buildTextField(
@@ -597,7 +603,13 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
     bool alignLabelWithHint = false,
   }) {
     return InputDecoration(
-      labelText: label,
+      label: Text(
+        label,
+        softWrap: true,
+        maxLines: 3,
+      ),
+      floatingLabelBehavior: FloatingLabelBehavior.auto,
+      floatingLabelAlignment: FloatingLabelAlignment.start,
       prefixIcon: Icon(icon),
       filled: true,
       fillColor: Colors.white,
