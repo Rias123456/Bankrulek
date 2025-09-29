@@ -58,9 +58,12 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
       .toList(growable: false);
 
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
+  final TextEditingController _firstNameController = TextEditingController();
+  final TextEditingController _lastNameController = TextEditingController();
   final TextEditingController _nicknameController = TextEditingController();
-  final TextEditingController _phoneController = TextEditingController();
   final TextEditingController _lineIdController = TextEditingController();
+  final TextEditingController _phoneController = TextEditingController();
+  final TextEditingController _currentActivityController = TextEditingController();
   final TextEditingController _scheduleController = TextEditingController();
   final TextEditingController _travelDurationController = TextEditingController();
 
@@ -72,9 +75,12 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
 
   @override
   void dispose() {
+    _firstNameController.dispose();
+    _lastNameController.dispose();
     _nicknameController.dispose();
-    _phoneController.dispose();
     _lineIdController.dispose();
+    _phoneController.dispose();
+    _currentActivityController.dispose();
     _scheduleController.dispose();
     _travelDurationController.dispose();
     super.dispose();
@@ -86,9 +92,12 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
       return;
     }
 
+    _firstNameController.text = tutor.firstName;
+    _lastNameController.text = tutor.lastName;
     _nicknameController.text = tutor.nickname;
-    _phoneController.text = tutor.phoneNumber;
     _lineIdController.text = tutor.lineId;
+    _phoneController.text = tutor.phoneNumber;
+    _currentActivityController.text = tutor.currentActivity;
     _travelDurationController.text = tutor.travelDuration;
     _selectedSubjects = List<String>.from(tutor.subjects);
     _scheduleController.text = tutor.teachingSchedule ?? '';
@@ -100,7 +109,7 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
     final String subjectsSignature = tutor.subjects.join(',');
     final String scheduleSignature = tutor.teachingSchedule ?? '';
     final String imageSignature = tutor.profileImageBase64 ?? '';
-    return '${tutor.email}|${tutor.nickname}|${tutor.phoneNumber}|${tutor.lineId}|${tutor.status}|${tutor.travelDuration}|'
+    return '${tutor.email}|${tutor.firstName}|${tutor.lastName}|${tutor.nickname}|${tutor.lineId}|${tutor.phoneNumber}|${tutor.currentActivity}|${tutor.status}|${tutor.travelDuration}|'
         '$subjectsSignature|$scheduleSignature|$imageSignature';
   }
 
@@ -131,7 +140,10 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
 
     setState(() => _isSaving = true);
     final Tutor updatedTutor = currentTutor.copyWith(
+      firstName: _firstNameController.text.trim(),
+      lastName: _lastNameController.text.trim(),
       nickname: _nicknameController.text.trim(),
+      currentActivity: _currentActivityController.text.trim(),
       phoneNumber: _phoneController.text.trim(),
       lineId: _lineIdController.text.trim(),
       travelDuration: _travelDurationController.text.trim(),
@@ -223,6 +235,7 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
                         final String option = _orderedSubjectOptions[index];
                         final bool isSelected = tempSelected.contains(option);
                         return CheckboxListTile(
+                          activeColor: const Color(0xFF880E4F),
                           value: isSelected,
                           title: Text(option),
                           onChanged: (bool? value) {
@@ -347,6 +360,13 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
     final ImageProvider<Object>? imageProvider = _buildProfileImage(imageData);
     final String nicknameDisplay =
         _nicknameController.text.trim().isEmpty ? tutor.nickname : _nicknameController.text.trim();
+    final String firstNameDisplay =
+        _firstNameController.text.trim().isEmpty ? tutor.firstName : _firstNameController.text.trim();
+    final String lastNameDisplay =
+        _lastNameController.text.trim().isEmpty ? tutor.lastName : _lastNameController.text.trim();
+    final String fullName = <String>[firstNameDisplay, lastNameDisplay]
+        .where((String value) => value.isNotEmpty)
+        .join(' ');
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.center,
@@ -363,15 +383,29 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
           ),
         ),
         const SizedBox(height: 16),
-        Text(
-          'ครู$nicknameDisplay',
-          style: const TextStyle(
-            fontSize: 24,
-            fontWeight: FontWeight.w700,
-            color: Color(0xFF4A4A4A),
+        if (fullName.isNotEmpty)
+          Text(
+            fullName,
+            style: const TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF4A4A4A),
+            ),
+            textAlign: TextAlign.center,
           ),
-          textAlign: TextAlign.center,
-        ),
+        if (nicknameDisplay.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text(
+              'ครู$nicknameDisplay',
+              style: TextStyle(
+                fontSize: fullName.isNotEmpty ? 18 : 24,
+                fontWeight: fullName.isNotEmpty ? FontWeight.w500 : FontWeight.w700,
+                color: const Color(0xFF5C5C5C),
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ),
       ],
     );
   }
@@ -387,6 +421,30 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
             _buildTextField(
+              controller: _firstNameController,
+              label: 'ชื่อจริง',
+              icon: Icons.badge_outlined,
+              textCapitalization: TextCapitalization.words,
+              inputFormatters: <TextInputFormatter>[
+                FilteringTextInputFormatter.allow(RegExp(r'[a-zA-Zก-๙\s]')),
+              ],
+              validator: (String? value) =>
+                  value == null || value.trim().isEmpty ? 'กรุณากรอกชื่อจริง' : null,
+            ),
+            const SizedBox(height: 16),
+            _buildTextField(
+              controller: _lastNameController,
+              label: 'นามสกุล',
+              icon: Icons.badge,
+              textCapitalization: TextCapitalization.words,
+              inputFormatters: <TextInputFormatter>[
+                FilteringTextInputFormatter.allow(RegExp(r'[a-zA-Zก-๙\s]')),
+              ],
+              validator: (String? value) =>
+                  value == null || value.trim().isEmpty ? 'กรุณากรอกนามสกุล' : null,
+            ),
+            const SizedBox(height: 16),
+            _buildTextField(
               controller: _nicknameController,
               label: 'ชื่อเล่น',
               icon: Icons.person,
@@ -399,6 +457,14 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
             ),
             const SizedBox(height: 16),
             _buildTextField(
+              controller: _lineIdController,
+              label: 'ID LINE',
+              icon: Icons.chat_bubble_outline,
+              validator: (String? value) =>
+                  value == null || value.trim().isEmpty ? 'กรุณากรอก ID LINE' : null,
+            ),
+            const SizedBox(height: 16),
+            _buildTextField(
               controller: _phoneController,
               label: 'เบอร์โทรศัพท์',
               icon: Icons.phone,
@@ -408,17 +474,24 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
             ),
             const SizedBox(height: 16),
             _buildTextField(
-              controller: _lineIdController,
-              label: 'ID LINE',
-              icon: Icons.chat,
-              validator: (String? value) =>
-                  value == null || value.trim().isEmpty ? 'กรุณากรอก ID LINE' : null,
+              controller: _currentActivityController,
+              label: 'สิ่งที่กำลังทำในปัจจุบัน',
+              icon: Icons.work_outline,
+              textCapitalization: TextCapitalization.sentences,
+              minLines: 1,
+              maxLines: 3,
             ),
             const SizedBox(height: 16),
             _buildTextField(
               controller: _travelDurationController,
               label: 'ระยะเวลาเดินทางมาสอน (เช่น 30 นาที)',
               icon: Icons.timer,
+              keyboardType: TextInputType.multiline,
+              textCapitalization: TextCapitalization.sentences,
+              textInputAction: TextInputAction.newline,
+              minLines: 2,
+              maxLines: null,
+              alignLabelWithHint: true,
               validator: (String? value) =>
                   value == null || value.trim().isEmpty ? 'กรุณาระบุระยะเวลาเดินทาง' : null,
             ),
@@ -467,6 +540,12 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
                     .map(
                       (String subject) => InputChip(
                         label: Text(subject),
+                        backgroundColor: const Color(0xFFFFCDD2),
+                        labelStyle: const TextStyle(
+                          color: Color(0xFF880E4F),
+                          fontWeight: FontWeight.w600,
+                        ),
+                        deleteIconColor: const Color(0xFF880E4F),
                         onDeleted: () {
                           setState(() {
                             _selectedSubjects.remove(subject);
@@ -512,12 +591,17 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
     );
   }
 
-  InputDecoration _inputDecoration({required String label, required IconData icon}) {
+  InputDecoration _inputDecoration({
+    required String label,
+    required IconData icon,
+    bool alignLabelWithHint = false,
+  }) {
     return InputDecoration(
       labelText: label,
       prefixIcon: Icon(icon),
       filled: true,
       fillColor: Colors.white,
+      alignLabelWithHint: alignLabelWithHint,
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
       ),
@@ -533,6 +617,11 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
     bool readOnly = false,
     TextCapitalization textCapitalization = TextCapitalization.none,
     List<TextInputFormatter>? inputFormatters,
+    TextInputAction? textInputAction,
+    int? minLines,
+    int? maxLines,
+    bool expands = false,
+    bool alignLabelWithHint = false,
   }) {
     return TextFormField(
       controller: controller,
@@ -541,7 +630,15 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
       readOnly: readOnly,
       textCapitalization: textCapitalization,
       inputFormatters: inputFormatters,
-      decoration: _inputDecoration(label: label, icon: icon),
+      textInputAction: textInputAction,
+      minLines: minLines,
+      maxLines: maxLines,
+      expands: expands,
+      decoration: _inputDecoration(
+        label: label,
+        icon: icon,
+        alignLabelWithHint: alignLabelWithHint,
+      ),
     );
   }
 
@@ -585,62 +682,57 @@ class _LoginSuccessScreenState extends State<LoginSuccessScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFFFE4E1),
-      appBar: AppBar(
-        automaticallyImplyLeading: false,
-        title: const Text('โปรไฟล์ติวเตอร์'),
-        backgroundColor: const Color(0xFFFFE4E1),
-        elevation: 0,
-        toolbarHeight: 48,
-      ),
-      body: Consumer<AuthProvider>(
-        builder: (BuildContext context, AuthProvider authProvider, _) {
-          if (authProvider.isLoading) {
-            return const Center(child: CircularProgressIndicator());
-          }
+      body: SafeArea(
+        child: Consumer<AuthProvider>(
+          builder: (BuildContext context, AuthProvider authProvider, _) {
+            if (authProvider.isLoading) {
+              return const Center(child: CircularProgressIndicator());
+            }
 
-          final Tutor? tutor = authProvider.currentTutor;
-          if (tutor == null) {
-            return _buildEmptyState(context);
-          }
+            final Tutor? tutor = authProvider.currentTutor;
+            if (tutor == null) {
+              return _buildEmptyState(context);
+            }
 
-          _synchronizeControllers(tutor);
+            _synchronizeControllers(tutor);
 
-          return Form(
-            key: _formKey,
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: <Widget>[
-                  _buildHeaderSection(tutor),
-                  const SizedBox(height: 12),
-                  _buildInformationCard(),
-                  const SizedBox(height: 16),
-                  _buildSubjectCard(),
-                  const SizedBox(height: 16),
-                  _buildScheduleCard(),
-                  const SizedBox(height: 24),
-                  PrimaryButton(
-                    label: _isSaving ? 'กำลังบันทึก...' : 'บันทึก',
-                    onPressed: _isSaving ? null : _handleSave,
-                  ),
-                  const SizedBox(height: 12),
-                  OutlinedButton(
-                    onPressed: _isSaving ? null : _handleLogout,
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      textStyle: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
+            return Form(
+              key: _formKey,
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(24, 24, 24, 24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    _buildHeaderSection(tutor),
+                    const SizedBox(height: 12),
+                    _buildInformationCard(),
+                    const SizedBox(height: 16),
+                    _buildSubjectCard(),
+                    const SizedBox(height: 16),
+                    _buildScheduleCard(),
+                    const SizedBox(height: 24),
+                    PrimaryButton(
+                      label: _isSaving ? 'กำลังบันทึก...' : 'บันทึก',
+                      onPressed: _isSaving ? null : _handleSave,
                     ),
-                    child: const Text('ออกจากระบบ'),
-                  ),
-                ],
+                    const SizedBox(height: 12),
+                    OutlinedButton(
+                      onPressed: _isSaving ? null : _handleLogout,
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        textStyle: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      child: const Text('ออกจากระบบ'),
+                    ),
+                  ],
+                ),
               ),
-            ),
-          );
-        },
+            );
+          },
+        ),
       ),
     );
   }

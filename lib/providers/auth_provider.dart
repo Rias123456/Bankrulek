@@ -6,6 +6,15 @@ import 'package:path_provider/path_provider.dart';
 
 /// คลาสข้อมูลสำหรับเก็บรายละเอียดของติวเตอร์ / Data model for tutors
 class Tutor {
+  /// ชื่อจริง / First name
+  final String firstName;
+
+  /// นามสกุล / Last name
+  final String lastName;
+
+  /// สิ่งที่กำลังทำอยู่ปัจจุบัน / Current activity or occupation
+  final String currentActivity;
+
   /// ชื่อเล่น / Nickname
   final String nickname;
 
@@ -49,6 +58,9 @@ class Tutor {
   static const String defaultTravelDuration = '';
 
   const Tutor({
+    this.firstName = '',
+    this.lastName = '',
+    this.currentActivity = '',
     required this.nickname,
     required this.phoneNumber,
     required this.lineId,
@@ -64,6 +76,8 @@ class Tutor {
   /// แปลงเป็นข้อความบันทึก / Convert data into a readable storage line
   String toStorageLine() {
     String sanitize(String value) => value.replaceAll('\n', ' ').replaceAll('|', '/');
+    final String firstNameSnippet = firstName.isNotEmpty ? sanitize(firstName) : '';
+    final String lastNameSnippet = lastName.isNotEmpty ? sanitize(lastName) : '';
     final String imageSnippet =
         profileImageBase64 != null && profileImageBase64!.isNotEmpty ? sanitize(profileImageBase64!) : '';
     final String subjectsSnippet = subjects.isNotEmpty
@@ -73,8 +87,11 @@ class Tutor {
         teachingSchedule != null && teachingSchedule!.isNotEmpty ? sanitize(teachingSchedule!) : '';
     final String statusSnippet = sanitize(status.isNotEmpty ? status : defaultStatus);
     final String travelSnippet = travelDuration.isNotEmpty ? sanitize(travelDuration) : '';
-    return 'ชื่อเล่น: ${sanitize(nickname)} | เบอร์โทร: ${sanitize(phoneNumber)} | '
-        'ไอดีไลน์: ${sanitize(lineId)} | อีเมล: ${sanitize(email)} | รหัสผ่าน: ${sanitize(password)} | '
+    final String currentActivitySnippet =
+        currentActivity.isNotEmpty ? sanitize(currentActivity) : '';
+    return 'ชื่อจริง: $firstNameSnippet | นามสกุล: $lastNameSnippet | ชื่อเล่น: ${sanitize(nickname)} | '
+        'ไอดีไลน์: ${sanitize(lineId)} | เบอร์โทร: ${sanitize(phoneNumber)} | อีเมล: ${sanitize(email)} | '
+        'รหัสผ่าน: ${sanitize(password)} | สิ่งที่กำลังทำในปัจจุบัน: $currentActivitySnippet | '
         'สถานะ: $statusSnippet | ระยะเวลาเดินทาง: $travelSnippet | รูปโปรไฟล์: $imageSnippet | วิชาที่สอน: $subjectsSnippet | '
         'ตารางสอน: $scheduleSnippet';
   }
@@ -108,11 +125,14 @@ class Tutor {
       }
     }
 
+    final String? firstName = findValue('ชื่อจริง');
+    final String? lastName = findValue('นามสกุล');
     final String? nickname = findValue('ชื่อเล่น');
     final String? phoneNumber = findValue('เบอร์โทร') ?? findValue('เบอร์โทรศัพท์');
     final String? lineId = findValue('ไอดีไลน์');
     final String? email = findValue('อีเมล');
     final String? password = findValue('รหัสผ่าน');
+    final String? currentActivity = findValue('สิ่งที่กำลังทำในปัจจุบัน');
     final String? rawStatus = findValue('สถานะ');
     final String? rawTravel = findValue('ระยะเวลาเดินทาง');
     String statusValue = rawStatus == null || rawStatus.trim().isEmpty
@@ -146,11 +166,14 @@ class Tutor {
       return null;
     }
     return Tutor(
+      firstName: firstName ?? '',
+      lastName: lastName ?? '',
       nickname: nickname,
       phoneNumber: phoneNumber ?? '',
       lineId: lineId,
       email: email,
       password: password,
+      currentActivity: currentActivity ?? '',
       status: statusValue,
       travelDuration: travelDurationValue,
       profileImageBase64: profileImageBase64,
@@ -161,6 +184,9 @@ class Tutor {
 
   /// สร้างอ็อบเจ็กต์ใหม่โดยคงค่าเดิม / Copy with new field values
   Tutor copyWith({
+    String? firstName,
+    String? lastName,
+    String? currentActivity,
     String? nickname,
     String? phoneNumber,
     String? lineId,
@@ -173,6 +199,9 @@ class Tutor {
     String? teachingSchedule,
   }) {
     return Tutor(
+      firstName: firstName ?? this.firstName,
+      lastName: lastName ?? this.lastName,
+      currentActivity: currentActivity ?? this.currentActivity,
       nickname: nickname ?? this.nickname,
       phoneNumber: phoneNumber ?? this.phoneNumber,
       lineId: lineId ?? this.lineId,
@@ -285,7 +314,7 @@ class AuthProvider extends ChangeNotifier {
       ..writeln('# วิธีดูข้อมูลที่จัดเก็บไว้: เปิดไฟล์นี้ด้วยแอปจัดการไฟล์หรือเทอร์มินัล')
       ..writeln('# ที่อยู่ไฟล์: $normalizedPath')
       ..writeln('# ตัวอย่างคำสั่ง: cat "$normalizedPath"')
-      ..writeln('# ฟอร์แมตข้อมูล: ชื่อเล่น | เบอร์โทร | ไอดีไลน์ | อีเมล | รหัสผ่าน | สถานะ | ระยะเวลาเดินทาง | รูปโปรไฟล์ (Base64) | วิชาที่สอน | ตารางสอน')
+      ..writeln('# ฟอร์แมตข้อมูล: ชื่อจริง | นามสกุล | ชื่อเล่น | ไอดีไลน์ | เบอร์โทร | อีเมล | รหัสผ่าน | สิ่งที่กำลังทำในปัจจุบัน | สถานะ | ระยะเวลาเดินทาง | รูปโปรไฟล์ (Base64) | วิชาที่สอน | ตารางสอน')
       ..writeln();
     for (final Tutor tutor in tutors) {
       buffer.writeln(tutor.toStorageLine());
