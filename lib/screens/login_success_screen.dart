@@ -179,6 +179,7 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
   int? _pendingSelectionSlot;
   Offset? _pendingSelectionLocalPosition;
   bool _shouldIgnoreNextTapUp = false;
+  bool _isGridScrollLocked = false;
 
   static const List<String> _dayLabels = <String>['เสาร์', 'อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัส', 'ศุกร์'];
   static const int _scheduleStartHour = 7;
@@ -508,6 +509,7 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
         _selectionStartSlot = _pendingSelectionSlot;
         _selectionCurrentDayIndex = _selectionCurrentDayIndex ?? _pendingSelectionDayIndex;
         _selectionCurrentSlot = _selectionCurrentSlot ?? _pendingSelectionSlot;
+        _isGridScrollLocked = true;
       });
     });
   }
@@ -579,6 +581,7 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
         _selectionStartSlot = null;
         _selectionCurrentDayIndex = null;
         _selectionCurrentSlot = null;
+        _isGridScrollLocked = false;
       });
     } else {
       _isSelectingRange = false;
@@ -586,6 +589,7 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
       _selectionStartSlot = null;
       _selectionCurrentDayIndex = null;
       _selectionCurrentSlot = null;
+      _isGridScrollLocked = false;
     }
     _resetPendingSelection();
   }
@@ -1692,6 +1696,9 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
         List<int>.generate(_scheduleEndHour - _scheduleStartHour, (int index) => _scheduleStartHour + index);
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
+      physics: _isGridScrollLocked
+          ? const NeverScrollableScrollPhysics()
+          : const ClampingScrollPhysics(),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
