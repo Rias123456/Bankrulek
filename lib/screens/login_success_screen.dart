@@ -165,6 +165,7 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
   int? _draggingBlockId;
   double _dragAccumulatedDx = 0;
   double _dragAccumulatedDy = 0;
+  bool _isDragPrimed = false;
 
   static const List<String> _dayLabels = <String>['เสาร์', 'อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัส', 'ศุกร์'];
   static const int _scheduleStartHour = 7;
@@ -659,8 +660,25 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
     );
   }
 
+  void _primeBlockDrag(ScheduleBlock block) {
+    if (_draggingBlockId == block.id && _isDragPrimed) {
+      return;
+    }
+    setState(() {
+      _draggingBlockId = block.id;
+      _isDragPrimed = true;
+      _dragAccumulatedDx = 0;
+      _dragAccumulatedDy = 0;
+    });
+  }
+
   void _startDraggingBlock(ScheduleBlock block) {
-    _draggingBlockId = block.id;
+    if (_draggingBlockId != block.id || !_isDragPrimed) {
+      setState(() {
+        _draggingBlockId = block.id;
+        _isDragPrimed = true;
+      });
+    }
     _dragAccumulatedDx = 0;
     _dragAccumulatedDy = 0;
   }
@@ -714,13 +732,22 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
           )
           .toList();
       _sortBlocks();
+      _isDragPrimed = true;
     });
   }
 
   void _endDraggingBlock() {
-    _draggingBlockId = null;
-    _dragAccumulatedDx = 0;
-    _dragAccumulatedDy = 0;
+    if (_draggingBlockId == null && !_isDragPrimed) {
+      _dragAccumulatedDx = 0;
+      _dragAccumulatedDy = 0;
+      return;
+    }
+    setState(() {
+      _draggingBlockId = null;
+      _isDragPrimed = false;
+      _dragAccumulatedDx = 0;
+      _dragAccumulatedDy = 0;
+    });
   }
 
   Future<void> _onBlockTapped(ScheduleBlock block) async {
@@ -1496,24 +1523,45 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
     final String label = isTeaching
         ? (block.note != null && block.note!.isNotEmpty ? block.note! : 'สอน')
         : 'ไม่ว่าง';
-    return Positioned(
+    final bool isActive = _draggingBlockId == block.id;
+    final bool isLifted = isActive && _isDragPrimed;
+    final double topInset = isLifted ? 0 : 6;
+    final double bottomInset = isLifted ? 12 : 6;
+    return AnimatedPositioned(
+      key: ValueKey<int>(block.id),
+      duration: const Duration(milliseconds: 150),
+      curve: Curves.easeOut,
       left: left,
-      top: 6,
-      bottom: 6,
+      top: topInset,
+      bottom: bottomInset,
       width: width,
       child: GestureDetector(
         onTap: () => _onBlockTapped(block),
+        onLongPressStart: (_) => _primeBlockDrag(block),
+        onLongPressEnd: (_) => _endDraggingBlock(),
+        onLongPressCancel: _endDraggingBlock,
         onPanStart: (_) => _startDraggingBlock(block),
         onPanUpdate: (DragUpdateDetails details) => _updateDraggingBlock(block, details.delta),
         onPanEnd: (_) => _endDraggingBlock(),
         child: Tooltip(
           message: '${_formatSlotRange(block.startSlot, block.durationSlots)}\n$label',
           waitDuration: const Duration(milliseconds: 400),
-          child: Container(
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 150),
+            curve: Curves.easeOut,
             decoration: BoxDecoration(
               color: backgroundColor,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(color: borderColor),
+              boxShadow: isLifted
+                  ? <BoxShadow>[
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.18),
+                        blurRadius: 12,
+                        offset: const Offset(0, 6),
+                      ),
+                    ]
+                  : const <BoxShadow>[],
             ),
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
             child: Column(
