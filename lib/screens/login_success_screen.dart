@@ -169,6 +169,8 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
   bool _isRangeSelecting = false;
   int? _rangeSelectionDayIndex;
   int? _rangeSelectionAnchorSlot;
+  int? _rangeSelectionStartDayIndex;
+  double? _rangeSelectionStartGlobalDy;
   _SelectionRange? _currentSelectionRange;
   bool _rangeSelectionMoved = false;
 
@@ -450,8 +452,8 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
     return _SelectionRange(startSlot: start, durationSlots: end - start + 1);
   }
 
-  void _startRangeSelection(int dayIndex, double dx) {
-    final int slot = _slotFromDx(dx);
+  void _startRangeSelection(int dayIndex, DragStartDetails details) {
+    final int slot = _slotFromDx(details.localPosition.dx);
     if (!_canPlaceBlock(dayIndex, slot, 1)) {
       _cancelRangeSelection();
       return;
@@ -459,29 +461,45 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
     setState(() {
       _isRangeSelecting = true;
       _rangeSelectionDayIndex = dayIndex;
+      _rangeSelectionStartDayIndex = dayIndex;
       _rangeSelectionAnchorSlot = slot;
+      _rangeSelectionStartGlobalDy = details.globalPosition.dy;
       _currentSelectionRange = _SelectionRange(startSlot: slot, durationSlots: 1);
       _rangeSelectionMoved = false;
     });
   }
 
-  void _updateRangeSelection(double dx) {
-    if (!_isRangeSelecting || _rangeSelectionDayIndex == null || _rangeSelectionAnchorSlot == null) {
+  void _updateRangeSelection(DragUpdateDetails details) {
+    if (!_isRangeSelecting ||
+        _rangeSelectionDayIndex == null ||
+        _rangeSelectionAnchorSlot == null ||
+        _rangeSelectionStartDayIndex == null ||
+        _rangeSelectionStartGlobalDy == null) {
       return;
     }
-    final int targetSlot = _slotFromDx(dx);
+    final int targetSlot = _slotFromDx(details.localPosition.dx);
     final int anchor = _rangeSelectionAnchorSlot!;
-    final _SelectionRange resolved = _resolveSelectionRange(_rangeSelectionDayIndex!, anchor, targetSlot);
-    final bool moved = targetSlot != anchor;
+    final double verticalDelta = details.globalPosition.dy - _rangeSelectionStartGlobalDy!;
+    final int dayOffset = verticalDelta ~/ _scheduleRowHeight;
+    final int targetDay =
+        _clampInt(_rangeSelectionStartDayIndex! + dayOffset, 0, _dayLabels.length - 1);
+    final _SelectionRange resolved = _resolveSelectionRange(targetDay, anchor, targetSlot);
+    final bool moved = targetSlot != anchor || targetDay != _rangeSelectionDayIndex;
     if (_currentSelectionRange?.startSlot != resolved.startSlot ||
         _currentSelectionRange?.durationSlots != resolved.durationSlots) {
       setState(() {
         _currentSelectionRange = resolved;
+        _rangeSelectionDayIndex = targetDay;
         _rangeSelectionMoved = _rangeSelectionMoved || moved;
       });
     } else if (moved && !_rangeSelectionMoved) {
       setState(() {
+        _rangeSelectionDayIndex = targetDay;
         _rangeSelectionMoved = true;
+      });
+    } else if (_rangeSelectionDayIndex != targetDay) {
+      setState(() {
+        _rangeSelectionDayIndex = targetDay;
       });
     }
   }
@@ -509,6 +527,8 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
       _isRangeSelecting = false;
       _rangeSelectionDayIndex = null;
       _rangeSelectionAnchorSlot = null;
+      _rangeSelectionStartDayIndex = null;
+      _rangeSelectionStartGlobalDy = null;
       _currentSelectionRange = null;
       _rangeSelectionMoved = false;
     });
@@ -563,6 +583,8 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
       _isRangeSelecting = false;
       _rangeSelectionDayIndex = null;
       _rangeSelectionAnchorSlot = null;
+      _rangeSelectionStartDayIndex = null;
+      _rangeSelectionStartGlobalDy = null;
       _currentSelectionRange = null;
       _rangeSelectionMoved = false;
     });
@@ -1728,10 +1750,8 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
             child: GestureDetector(
               behavior: HitTestBehavior.opaque,
               onTapUp: (TapUpDetails details) => _handleGridTap(dayIndex, details.localPosition.dx),
-              onPanStart: (DragStartDetails details) =>
-                  _startRangeSelection(dayIndex, details.localPosition.dx),
-              onPanUpdate: (DragUpdateDetails details) =>
-                  _updateRangeSelection(details.localPosition.dx),
+              onPanStart: (DragStartDetails details) => _startRangeSelection(dayIndex, details),
+              onPanUpdate: (DragUpdateDetails details) => _updateRangeSelection(details),
               onPanEnd: (DragEndDetails details) =>
                   _finishRangeSelection(details: details),
               onPanCancel: () => _finishRangeSelection(cancelled: true),
