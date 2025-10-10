@@ -10,6 +10,7 @@ import 'screens/register_tutor_screen.dart';
 import 'screens/tutor_login_screen.dart';
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
   runApp(const BankrulekApp());
 }
 
