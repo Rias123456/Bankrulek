@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:math' as math;
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
@@ -153,6 +154,8 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
   final TextEditingController _phoneController = TextEditingController();
   final TextEditingController _currentActivityController = TextEditingController();
   final TextEditingController _travelDurationController = TextEditingController();
+  final ScrollController _scheduleScrollController = ScrollController();
+  ScrollHoldController? _scheduleHoldController;
 
   List<String> _selectedSubjects = <String>[];
   String? _profileImageBase64;
@@ -173,6 +176,10 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
   double? _rangeSelectionStartGlobalDy;
   _SelectionRange? _currentSelectionRange;
   bool _rangeSelectionMoved = false;
+  bool _rangeSelectionPrimed = false;
+  int? _pendingRangeDayIndex;
+  Offset? _pendingRangeLocalOffset;
+  Offset? _pendingRangeGlobalOffset;
 
   static const List<String> _dayLabels = <String>['เสาร์', 'อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัส', 'ศุกร์'];
   static const int _scheduleStartHour = 7;
@@ -180,6 +187,7 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
   static const double _scheduleHourWidth = 96;
   static const double _scheduleRowHeight = 72;
   static const double _dayLabelWidth = 80;
+  static const double _rangeSelectionActivationThreshold = 8;
   static const String _scheduleSerializationPrefix = 'SCHEDULE_V1:';
 
   int get _totalSlots => (_scheduleEndHour - _scheduleStartHour) * 2;
@@ -194,6 +202,8 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
     _phoneController.dispose();
     _currentActivityController.dispose();
     _travelDurationController.dispose();
+    _releaseScheduleHold();
+    _scheduleScrollController.dispose();
     super.dispose();
   }
 
@@ -327,6 +337,30 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
     });
   }
 
+  void _handleScrollHoldCanceled() {
+    _scheduleHoldController = null;
+  }
+
+  void _acquireScheduleHold() {
+    if (_scheduleHoldController != null || !_scheduleScrollController.hasClients) {
+      return;
+    }
+    _scheduleHoldController =
+        _scheduleScrollController.position.hold(_handleScrollHoldCanceled);
+  }
+
+  void _releaseScheduleHold() {
+    _scheduleHoldController?.cancel();
+    _scheduleHoldController = null;
+  }
+
+  void _clearPendingRangeSelection() {
+    _pendingRangeDayIndex = null;
+    _pendingRangeLocalOffset = null;
+    _pendingRangeGlobalOffset = null;
+    _rangeSelectionPrimed = false;
+  }
+
   int _clampInt(int value, int min, int max) {
     if (value < min) {
       return min;
@@ -452,8 +486,61 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
     return _SelectionRange(startSlot: start, durationSlots: end - start + 1);
   }
 
-  void _startRangeSelection(int dayIndex, DragStartDetails details) {
-    final int slot = _slotFromDx(details.localPosition.dx);
+  void _handleRangePanDown(int dayIndex, DragDownDetails details) {
+    _acquireScheduleHold();
+    _pendingRangeDayIndex = dayIndex;
+    _pendingRangeLocalOffset = details.localPosition;
+    _pendingRangeGlobalOffset = details.globalPosition;
+    _rangeSelectionPrimed = true;
+  }
+
+  void _handleRangePanStart(int dayIndex, DragStartDetails details) {
+    _acquireScheduleHold();
+    _pendingRangeDayIndex ??= dayIndex;
+    _pendingRangeLocalOffset ??= details.localPosition;
+    _pendingRangeGlobalOffset ??= details.globalPosition;
+  }
+
+  void _handleRangePanUpdate(int dayIndex, DragUpdateDetails details) {
+    if (_isRangeSelecting) {
+      _updateRangeSelection(details);
+      return;
+    }
+    if (!_rangeSelectionPrimed ||
+        _pendingRangeDayIndex == null ||
+        _pendingRangeLocalOffset == null ||
+        _pendingRangeGlobalOffset == null) {
+      return;
+    }
+    final Offset delta = details.globalPosition - _pendingRangeGlobalOffset!;
+    if (delta.distanceSquared <
+        _rangeSelectionActivationThreshold * _rangeSelectionActivationThreshold) {
+      return;
+    }
+    _startRangeSelection(
+      _pendingRangeDayIndex!,
+      _pendingRangeLocalOffset!,
+      _pendingRangeGlobalOffset!,
+    );
+    if (_isRangeSelecting) {
+      _updateRangeSelection(details);
+    }
+  }
+
+  void _handleRangePanEnd(DragEndDetails details) {
+    final bool shouldCancel = !_isRangeSelecting || !_rangeSelectionMoved;
+    _finishRangeSelection(details: details, cancelled: shouldCancel);
+  }
+
+  void _handleRangePanCancel() {
+    _finishRangeSelection(cancelled: true);
+  }
+
+  void _startRangeSelection(int dayIndex, Offset localPosition, Offset globalPosition) {
+    if (_isRangeSelecting) {
+      return;
+    }
+    final int slot = _slotFromDx(localPosition.dx);
     if (!_canPlaceBlock(dayIndex, slot, 1)) {
       _cancelRangeSelection();
       return;
@@ -463,10 +550,11 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
       _rangeSelectionDayIndex = dayIndex;
       _rangeSelectionStartDayIndex = dayIndex;
       _rangeSelectionAnchorSlot = slot;
-      _rangeSelectionStartGlobalDy = details.globalPosition.dy;
+      _rangeSelectionStartGlobalDy = globalPosition.dy;
       _currentSelectionRange = _SelectionRange(startSlot: slot, durationSlots: 1);
       _rangeSelectionMoved = false;
     });
+    _clearPendingRangeSelection();
   }
 
   void _updateRangeSelection(DragUpdateDetails details) {
@@ -506,6 +594,9 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
 
   Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = false}) async {
     if (!_isRangeSelecting) {
+      _releaseScheduleHold();
+      _clearPendingRangeSelection();
+      _rangeSelectionMoved = false;
       return;
     }
     final _SelectionRange? range = _currentSelectionRange;
@@ -532,6 +623,8 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
       _currentSelectionRange = null;
       _rangeSelectionMoved = false;
     });
+    _releaseScheduleHold();
+    _clearPendingRangeSelection();
 
     if (!_canPlaceBlock(dayIndex, range.startSlot, range.durationSlots)) {
       return;
@@ -577,6 +670,9 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
 
   void _cancelRangeSelection() {
     if (!_isRangeSelecting && _currentSelectionRange == null) {
+      _releaseScheduleHold();
+      _clearPendingRangeSelection();
+      _rangeSelectionMoved = false;
       return;
     }
     setState(() {
@@ -588,6 +684,8 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
       _currentSelectionRange = null;
       _rangeSelectionMoved = false;
     });
+    _releaseScheduleHold();
+    _clearPendingRangeSelection();
   }
 
   Future<void> _handleGridTap(int dayIndex, double dx) async {
@@ -771,7 +869,7 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
 
     final _BlockDetails? result = await showDialog<_BlockDetails>(
       context: context,
-      builder: (BuildContext dialogContext) {
+      builder: (BuildContext _dialogContext) {
         return StatefulBuilder(
           builder: (BuildContext context, StateSetter setState) {
             final bool isTeaching = type == ScheduleBlockType.teaching;
@@ -879,7 +977,10 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
                 ElevatedButton(
                   onPressed: () {
                     if (!_canPlaceBlock(selectedDay, startSlot, duration, ignoreId: ignoreBlockId)) {
-                      ScaffoldMessenger.of(dialogContext).showSnackBar(
+                      if (!mounted) {
+                        return;
+                      }
+                      ScaffoldMessenger.of(this.context).showSnackBar(
                         const SnackBar(content: Text('ช่วงเวลานี้ถูกใช้ไปแล้ว')),
                       );
                       return;
@@ -1666,6 +1767,10 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
     final List<int> hourLabels =
         List<int>.generate(_scheduleEndHour - _scheduleStartHour, (int index) => _scheduleStartHour + index);
     return SingleChildScrollView(
+      controller: _scheduleScrollController,
+      physics: _isRangeSelecting
+          ? const NeverScrollableScrollPhysics()
+          : const ClampingScrollPhysics(),
       scrollDirection: Axis.horizontal,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1749,12 +1854,13 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
             width: gridWidth,
             child: GestureDetector(
               behavior: HitTestBehavior.opaque,
+              dragStartBehavior: DragStartBehavior.down,
               onTapUp: (TapUpDetails details) => _handleGridTap(dayIndex, details.localPosition.dx),
-              onPanStart: (DragStartDetails details) => _startRangeSelection(dayIndex, details),
-              onPanUpdate: (DragUpdateDetails details) => _updateRangeSelection(details),
-              onPanEnd: (DragEndDetails details) =>
-                  _finishRangeSelection(details: details),
-              onPanCancel: () => _finishRangeSelection(cancelled: true),
+              onPanDown: (DragDownDetails details) => _handleRangePanDown(dayIndex, details),
+              onPanStart: (DragStartDetails details) => _handleRangePanStart(dayIndex, details),
+              onPanUpdate: (DragUpdateDetails details) => _handleRangePanUpdate(dayIndex, details),
+              onPanEnd: _handleRangePanEnd,
+              onPanCancel: _handleRangePanCancel,
               child: Stack(
                 children: <Widget>[
                   Positioned.fill(
