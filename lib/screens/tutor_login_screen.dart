@@ -111,7 +111,7 @@ class _TutorLoginScreenState extends State<TutorLoginScreen> {
               // ช่องกรอกรหัสผ่าน
               TextFormField(
                 controller: _passwordController,
-                obscureText: true,
+                obscureText: false,
                 decoration: InputDecoration(
                   labelText: 'รหัสผ่าน',
                   prefixIcon: const Icon(Icons.lock),
