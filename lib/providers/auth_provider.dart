@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
 /// คลาสข้อมูลสำหรับเก็บรายละเอียดของติวเตอร์ / Data model for tutors
@@ -267,9 +269,29 @@ class AuthProvider extends ChangeNotifier {
     final File file = File('${dir.path}/data.txt');
     if (!await file.exists()) {
       await file.create(recursive: true);
-      await file.writeAsString(_generateFileContent(_tutors, file.path));
+      final List<String>? templateLines = await _loadInitialTemplateLines();
+      await file.writeAsString(
+        _generateFileContent(
+          _tutors,
+          file.path,
+          initialLines: templateLines,
+        ),
+      );
     }
     return file;
+  }
+
+  Future<List<String>?> _loadInitialTemplateLines() async {
+    try {
+      final String raw = await rootBundle.loadString('assets/data/initial_tutors.txt');
+      final List<String> lines = const LineSplitter()
+          .convert(raw)
+          .map((String line) => line.trimRight())
+          .toList();
+      return lines.where((String element) => element.trim().isNotEmpty).isEmpty ? null : lines;
+    } catch (_) {
+      return null;
+    }
   }
 
   /// โหลดรายชื่อติวเตอร์จากไฟล์ / Load tutors from text file
@@ -308,7 +330,11 @@ class AuthProvider extends ChangeNotifier {
   }
 
   /// สร้างข้อความสำหรับบันทึกไฟล์ / Build file content with header instructions
-  String _generateFileContent(List<Tutor> tutors, String filePath) {
+  String _generateFileContent(
+    List<Tutor> tutors,
+    String filePath, {
+    List<String>? initialLines,
+  }) {
     final String normalizedPath = filePath.replaceAll('\\', '/');
     final StringBuffer buffer = StringBuffer()
       ..writeln('# วิธีดูข้อมูลที่จัดเก็บไว้: เปิดไฟล์นี้ด้วยแอปจัดการไฟล์หรือเทอร์มินัล')
@@ -316,6 +342,14 @@ class AuthProvider extends ChangeNotifier {
       ..writeln('# ตัวอย่างคำสั่ง: cat "$normalizedPath"')
       ..writeln('# ฟอร์แมตข้อมูล: ชื่อจริง | นามสกุล | ชื่อเล่น | ไอดีไลน์ | เบอร์โทร | อีเมล | รหัสผ่าน | สิ่งที่กำลังทำในปัจจุบัน | สถานะ | ระยะเวลาเดินทาง | รูปโปรไฟล์ (Base64) | วิชาที่สอน | ตารางสอน')
       ..writeln();
+    if (initialLines != null && initialLines.isNotEmpty) {
+      for (final String line in initialLines) {
+        buffer.writeln(line);
+      }
+      if (!buffer.toString().endsWith('\n\n')) {
+        buffer.writeln();
+      }
+    }
     for (final Tutor tutor in tutors) {
       buffer.writeln(tutor.toStorageLine());
     }
