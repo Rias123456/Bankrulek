@@ -672,8 +672,30 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
     _dragAccumulatedDx += delta.dx;
     _dragAccumulatedDy += delta.dy;
 
-    final int horizontalSteps = (_dragAccumulatedDx / _slotWidth).round();
-    final int verticalSteps = (_dragAccumulatedDy / _scheduleRowHeight).round();
+    int horizontalSteps = 0;
+    int verticalSteps = 0;
+
+    final double horizontalThreshold = _slotWidth * 0.4;
+    final double verticalThreshold = _scheduleRowHeight * 0.35;
+
+    while (_dragAccumulatedDx >= horizontalThreshold) {
+      horizontalSteps += 1;
+      _dragAccumulatedDx -= _slotWidth;
+    }
+    while (_dragAccumulatedDx <= -horizontalThreshold) {
+      horizontalSteps -= 1;
+      _dragAccumulatedDx += _slotWidth;
+    }
+
+    while (_dragAccumulatedDy >= verticalThreshold) {
+      verticalSteps += 1;
+      _dragAccumulatedDy -= _scheduleRowHeight;
+    }
+    while (_dragAccumulatedDy <= -verticalThreshold) {
+      verticalSteps -= 1;
+      _dragAccumulatedDy += _scheduleRowHeight;
+    }
+
     if (horizontalSteps == 0 && verticalSteps == 0) {
       return;
     }
@@ -693,9 +715,6 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
           .toList();
       _sortBlocks();
     });
-
-    _dragAccumulatedDx -= horizontalSteps * _slotWidth;
-    _dragAccumulatedDy -= verticalSteps * _scheduleRowHeight;
   }
 
   void _endDraggingBlock() {
@@ -1375,26 +1394,33 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
               ),
               SizedBox(
                 width: gridWidth,
-                child: Row(
+                child: Stack(
                   children: <Widget>[
-                    ...hourLabels.map(
-                      (int hour) => SizedBox(
-                        width: _scheduleHourWidth,
-                        child: Center(
-                          child: Text(
-                            _formatTimeLabel(hour),
-                            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12),
+                    Row(
+                      children: <Widget>[
+                        ...hourLabels.map(
+                          (int hour) => SizedBox(
+                            width: _scheduleHourWidth,
+                            child: Center(
+                              child: Text(
+                                _formatTimeLabel(hour),
+                                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12),
+                              ),
+                            ),
                           ),
                         ),
-                      ),
+                      ],
                     ),
-                    SizedBox(
-                      width: 40,
-                      child: Align(
-                        alignment: Alignment.centerLeft,
-                        child: Text(
-                          _formatTimeLabel(_scheduleEndHour),
-                          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12),
+                    Positioned(
+                      right: 0,
+                      child: SizedBox(
+                        width: _scheduleHourWidth / 2,
+                        child: Align(
+                          alignment: Alignment.centerRight,
+                          child: Text(
+                            _formatTimeLabel(_scheduleEndHour),
+                            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12),
+                          ),
                         ),
                       ),
                     ),
