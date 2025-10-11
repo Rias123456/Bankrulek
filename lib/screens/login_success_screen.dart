@@ -1065,11 +1065,8 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
                           Expanded(
                             child: OutlinedButton(
                               onPressed: () {
-                                FocusManager.instance.primaryFocus?.unfocus();
-                                final NavigatorState navigator = Navigator.of(bottomSheetContext);
-                                if (navigator.canPop()) {
-                                  navigator.pop();
-                                }
+                                FocusScope.of(bottomSheetContext).unfocus();
+                                Navigator.of(bottomSheetContext).pop();
                               },
                               child: const Text('ยกเลิก'),
                             ),
@@ -1093,12 +1090,8 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
                                   }
                                   return;
                                 }
-                                FocusManager.instance.primaryFocus?.unfocus();
-                                final NavigatorState navigator = Navigator.of(bottomSheetContext);
-                                if (!navigator.canPop()) {
-                                  return;
-                                }
-                                navigator.pop(
+                                FocusScope.of(bottomSheetContext).unfocus();
+                                Navigator.of(bottomSheetContext).pop(
                                   _BlockDetails(
                                     dayIndex: selectedDay,
                                     durationSlots: duration,
