@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 
@@ -682,6 +683,8 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
       return;
     }
 
+    await Future<void>.delayed(const Duration(milliseconds: 120));
+
     final _BlockDetails? detailsResult = await _collectBlockDetails(
       type: type,
       dayIndex: dayIndex,
@@ -760,6 +763,7 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
     if (type == null) {
       return;
     }
+    await Future<void>.delayed(const Duration(milliseconds: 120));
     final _BlockDetails? details = await _collectBlockDetails(
       type: type,
       dayIndex: dayIndex,
@@ -825,17 +829,17 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
                 const SizedBox(height: 16),
                 _buildBlockOption(
                   color: const Color(0xFFFFE4E1),
-                  borderColor: const Color(0xFFB71C1C),
-                  textColor: Colors.grey.shade600,
+                  borderColor: const Color(0xFFFFB3B3),
+                  textColor: const Color(0xFF5F5F5F),
                   title: 'สอน',
                   subtitle: 'บันทึกคาบสอนและรายละเอียด',
                   onTap: () => Navigator.pop(context, ScheduleBlockType.teaching),
                 ),
                 const SizedBox(height: 12),
                 _buildBlockOption(
-                  color: Colors.grey.shade300,
-                  borderColor: Colors.grey.shade500,
-                  textColor: Colors.grey.shade700,
+                  color: const Color(0xFFE0E0E0),
+                  borderColor: const Color(0xFF757575),
+                  textColor: const Color(0xFF424242),
                   title: 'ไม่ว่าง',
                   subtitle: 'กันเวลาไว้สำหรับภารกิจอื่น',
                   onTap: () => Navigator.pop(context, ScheduleBlockType.unavailable),
@@ -922,6 +926,7 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
             maxForSelectedDay,
           );
     final TextEditingController noteController = TextEditingController(text: initialNote ?? '');
+    String? noteError;
 
     final _BlockDetails? result = await showDialog<_BlockDetails>(
       context: context,
@@ -981,13 +986,20 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
                         controller: noteController,
                         autofocus: true,
                         textCapitalization: TextCapitalization.sentences,
-                        decoration: const InputDecoration(
+                        decoration: InputDecoration(
                           labelText: 'รายละเอียดการสอน',
                           hintText: 'เช่น ชื่อวิชา หรือชื่อนักเรียน',
+                          errorText: noteError,
                         ),
+                        onChanged: (String value) {
+                          if (noteError != null && value.trim().isNotEmpty) {
+                            setState(() => noteError = null);
+                          }
+                        },
                       ),
                       const SizedBox(height: 16),
                     ],
+                    if (!isTeaching) const SizedBox(height: 16),
                     Row(
                       children: <Widget>[
                         const Text('ระยะเวลา'),
@@ -1032,6 +1044,12 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
                 ),
                 ElevatedButton(
                   onPressed: () {
+                    if (isTeaching && noteController.text.trim().isEmpty) {
+                      setState(() {
+                        noteError = 'กรุณากรอกรายละเอียดการสอน';
+                      });
+                      return;
+                    }
                     if (!_canPlaceBlock(selectedDay, startSlot, duration, ignoreId: ignoreBlockId)) {
                       if (!mounted) {
                         return;
@@ -1046,11 +1064,7 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
                       _BlockDetails(
                         dayIndex: selectedDay,
                         durationSlots: duration,
-                        note: isTeaching
-                            ? (noteController.text.trim().isEmpty
-                                ? null
-                                : noteController.text.trim())
-                            : null,
+                        note: isTeaching ? noteController.text.trim() : null,
                       ),
                     );
                   },
@@ -2004,9 +2018,9 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
     final double left = block.startSlot * _slotWidth;
     final double width = block.durationSlots * _slotWidth;
     final bool isTeaching = block.type == ScheduleBlockType.teaching;
-    final Color backgroundColor = isTeaching ? const Color(0xFFFFE4E1) : Colors.grey.shade300;
-    final Color textColor = isTeaching ? Colors.grey.shade700 : Colors.grey.shade800;
-    final Color borderColor = isTeaching ? const Color(0xFFB71C1C) : Colors.grey.shade500;
+    final Color backgroundColor = isTeaching ? const Color(0xFFFFE4E1) : const Color(0xFFE0E0E0);
+    final Color textColor = isTeaching ? const Color(0xFF5F5F5F) : const Color(0xFF424242);
+    final Color borderColor = isTeaching ? const Color(0xFFFFB3B3) : const Color(0xFF757575);
     final String label = isTeaching
         ? (block.note != null && block.note!.isNotEmpty ? block.note! : 'สอน')
         : 'ไม่ว่าง';
