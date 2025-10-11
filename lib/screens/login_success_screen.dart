@@ -188,6 +188,7 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
   static const int _scheduleEndHour = 21;
   static const double _scheduleHourWidth = 96;
   static const double _scheduleRowHeight = 72;
+  static const double _scheduleTimelineHeight = 40;
   static const double _dayLabelWidth = 80;
   static const double _rangeSelectionActivationThreshold = 8;
   static const String _scheduleSerializationPrefix = 'SCHEDULE_V1:';
@@ -1905,11 +1906,13 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
 
   Widget _buildScheduleGrid() {
     final double gridWidth = (_scheduleEndHour - _scheduleStartHour) * _scheduleHourWidth;
+    final double gridHeight = _dayLabels.length * _scheduleRowHeight;
     final List<int> hourLabels =
         List<int>.generate(_scheduleEndHour - _scheduleStartHour, (int index) => _scheduleStartHour + index);
     final double scrollStep = _scheduleHourWidth * 2;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
       children: <Widget>[
         Align(
           alignment: Alignment.centerRight,
@@ -1935,32 +1938,52 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
           ),
         ),
         const SizedBox(height: 8),
-        ClipRect(
-          child: SingleChildScrollView(
-            controller: _scheduleScrollController,
-            physics: const NeverScrollableScrollPhysics(),
-            scrollDirection: Axis.horizontal,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Row(
-                  children: <Widget>[
-                    SizedBox(
-                      width: _dayLabelWidth,
-                      child: const SizedBox.shrink(),
-                    ),
-                    SizedBox(
-                      width: gridWidth,
-                      child: Stack(
-                        children: <Widget>[
-                          Row(
+        SizedBox(
+          height: gridHeight + _scheduleTimelineHeight + 8,
+          child: ClipRect(
+            child: SingleChildScrollView(
+              controller: _scheduleScrollController,
+              physics: const NeverScrollableScrollPhysics(),
+              scrollDirection: Axis.horizontal,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  SizedBox(
+                    height: _scheduleTimelineHeight,
+                    child: Row(
+                      children: <Widget>[
+                        SizedBox(
+                          width: _dayLabelWidth,
+                          child: const SizedBox.shrink(),
+                        ),
+                        SizedBox(
+                          width: gridWidth,
+                          child: Stack(
                             children: <Widget>[
-                              ...hourLabels.map(
-                                (int hour) => SizedBox(
+                              Row(
+                                children: <Widget>[
+                                  ...hourLabels.map(
+                                    (int hour) => SizedBox(
+                                      width: _scheduleHourWidth,
+                                      child: Center(
+                                        child: Text(
+                                          _formatTimeLabel(hour),
+                                          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              Positioned(
+                                right: 0,
+                                child: SizedBox(
                                   width: _scheduleHourWidth,
-                                  child: Center(
+                                  child: Align(
+                                    alignment: Alignment.centerRight,
                                     child: Text(
-                                      _formatTimeLabel(hour),
+                                      _formatTimeLabel(_scheduleEndHour),
                                       style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12),
                                     ),
                                   ),
@@ -1968,32 +1991,20 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
                               ),
                             ],
                           ),
-                          Positioned(
-                            right: 0,
-                            child: SizedBox(
-                              width: _scheduleHourWidth,
-                              child: Align(
-                                alignment: Alignment.centerRight,
-                                child: Text(
-                                  _formatTimeLabel(_scheduleEndHour),
-                                  style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Column(
-                  children: List<Widget>.generate(
-                    _dayLabels.length,
-                    (int index) => _buildDayRow(index, gridWidth),
                   ),
-                ),
-              ],
+                  const SizedBox(height: 8),
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: List<Widget>.generate(
+                      _dayLabels.length,
+                      (int index) => _buildDayRow(index, gridWidth),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
