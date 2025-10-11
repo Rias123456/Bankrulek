@@ -1019,140 +1019,173 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
           );
     final TextEditingController noteController = TextEditingController(text: initialNote ?? '');
 
-    final _BlockDetails? result = await showDialog<_BlockDetails>(
+    final _BlockDetails? result = await showModalBottomSheet<_BlockDetails>(
       context: context,
-      builder: (BuildContext _dialogContext) {
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (BuildContext sheetContext) {
         return StatefulBuilder(
           builder: (BuildContext context, StateSetter setState) {
             final bool isTeaching = type == ScheduleBlockType.teaching;
-            return AlertDialog(
-              title: Text(isTeaching ? 'เพิ่มช่วงเวลาสอน' : 'ทำเครื่องหมายไม่ว่าง'),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    Text(
-                      '${_formatDayWithDate(selectedDay)} ${_formatSlotRange(selectedDay, startSlot, duration)}',
-                      style: const TextStyle(fontWeight: FontWeight.w600),
-                    ),
-                    const SizedBox(height: 12),
-                    DropdownButtonFormField<int>(
-                      value: selectedDay,
-                      decoration: const InputDecoration(labelText: 'วัน'),
-                      items: List<DropdownMenuItem<int>>.generate(
-                        _dayLabels.length,
-                        (int index) {
-                          final bool enabled = maxDurationPerDay[index] > 0;
-                          return DropdownMenuItem<int>(
-                            value: index,
-                            enabled: enabled,
-                            child: Row(
-                              children: <Widget>[
-                                Expanded(child: Text(_formatDayWithDate(index))),
-                                if (!enabled)
-                                  Text(
-                                    'เต็ม',
-                                    style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
-                                  ),
-                              ],
-                            ),
-                          );
-                        },
-                      ),
-                      onChanged: (int? value) {
-                        if (value == null || maxDurationPerDay[value] <= 0) {
-                          return;
-                        }
-                        setState(() {
-                          selectedDay = value;
-                          maxForSelectedDay = math.max(1, maxDurationPerDay[value]);
-                          duration = _clampInt(duration, 1, maxForSelectedDay);
-                        });
-                      },
-                    ),
-                    const SizedBox(height: 16),
-                    if (isTeaching) ...<Widget>[
-                      TextField(
-                        controller: noteController,
-                        autofocus: true,
-                        textCapitalization: TextCapitalization.sentences,
-                        decoration: const InputDecoration(
-                          labelText: 'รายละเอียดการสอน',
-                          hintText: 'เช่น ชื่อวิชา หรือชื่อนักเรียน',
+            final double bottomPadding = MediaQuery.of(context).viewInsets.bottom;
+            return SafeArea(
+              child: Padding(
+                padding: EdgeInsets.only(
+                  left: 20,
+                  right: 20,
+                  top: 16,
+                  bottom: bottomPadding + 16,
+                ),
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Center(
+                        child: Container(
+                          width: 40,
+                          height: 4,
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade400,
+                            borderRadius: BorderRadius.circular(2),
+                          ),
                         ),
                       ),
                       const SizedBox(height: 16),
-                    ],
-                    Row(
-                      children: <Widget>[
-                        const Text('ระยะเวลา'),
-                        const Spacer(),
-                        IconButton(
-                          onPressed: duration > 1
-                              ? () => setState(() {
-                                    duration = math.max(1, duration - 1);
-                                  })
-                              : null,
-                          icon: const Icon(Icons.remove_circle_outline),
+                      Text(
+                        isTeaching ? 'เพิ่มช่วงเวลาสอน' : 'ทำเครื่องหมายไม่ว่าง',
+                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        '${_formatDayWithDate(selectedDay)} ${_formatSlotRange(selectedDay, startSlot, duration)}',
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(height: 16),
+                      DropdownButtonFormField<int>(
+                        value: selectedDay,
+                        decoration: const InputDecoration(labelText: 'วัน'),
+                        items: List<DropdownMenuItem<int>>.generate(
+                          _dayLabels.length,
+                          (int index) {
+                            final bool enabled = maxDurationPerDay[index] > 0;
+                            return DropdownMenuItem<int>(
+                              value: index,
+                              enabled: enabled,
+                              child: Row(
+                                children: <Widget>[
+                                  Expanded(child: Text(_formatDayWithDate(index))),
+                                  if (!enabled)
+                                    Text(
+                                      'เต็ม',
+                                      style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
+                                    ),
+                                ],
+                              ),
+                            );
+                          },
                         ),
-                        Text(
-                          _formatDurationLabel(duration),
-                          style: const TextStyle(fontWeight: FontWeight.w600),
+                        onChanged: (int? value) {
+                          if (value == null || maxDurationPerDay[value] <= 0) {
+                            return;
+                          }
+                          setState(() {
+                            selectedDay = value;
+                            maxForSelectedDay = math.max(1, maxDurationPerDay[value]);
+                            duration = _clampInt(duration, 1, maxForSelectedDay);
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                      if (isTeaching) ...<Widget>[
+                        TextField(
+                          controller: noteController,
+                          autofocus: true,
+                          textCapitalization: TextCapitalization.sentences,
+                          decoration: const InputDecoration(
+                            labelText: 'รายละเอียดการสอน',
+                            hintText: 'เช่น ชื่อวิชา หรือชื่อนักเรียน',
+                          ),
+                          maxLines: null,
                         ),
-                        IconButton(
-                          onPressed: duration < maxForSelectedDay
-                              ? () => setState(() {
-                                    duration = math.min(maxForSelectedDay, duration + 1);
-                                  })
-                              : null,
-                          icon: const Icon(Icons.add_circle_outline),
-                        ),
+                        const SizedBox(height: 16),
                       ],
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'คุณสามารถลากเพื่อย้ายบล็อคไปยังวันหรือเวลาอื่นได้ในภายหลัง',
-                      style: Theme.of(context)
-                          .textTheme
-                          .bodySmall
-                          ?.copyWith(color: Colors.grey.shade600),
-                    ),
-                  ],
+                      Row(
+                        children: <Widget>[
+                          const Text('ระยะเวลา'),
+                          const Spacer(),
+                          IconButton(
+                            onPressed: duration > 1
+                                ? () => setState(() {
+                                      duration = math.max(1, duration - 1);
+                                    })
+                                : null,
+                            icon: const Icon(Icons.remove_circle_outline),
+                          ),
+                          Text(
+                            _formatDurationLabel(duration),
+                            style: const TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                          IconButton(
+                            onPressed: duration < maxForSelectedDay
+                                ? () => setState(() {
+                                      duration = math.min(maxForSelectedDay, duration + 1);
+                                    })
+                                : null,
+                            icon: const Icon(Icons.add_circle_outline),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'คุณสามารถลากเพื่อย้ายบล็อคไปยังวันหรือเวลาอื่นได้ในภายหลัง',
+                        style: Theme.of(context)
+                            .textTheme
+                            .bodySmall
+                            ?.copyWith(color: Colors.grey.shade600),
+                      ),
+                      const SizedBox(height: 24),
+                      Row(
+                        children: <Widget>[
+                          TextButton(
+                            onPressed: () => Navigator.pop(context),
+                            child: const Text('ยกเลิก'),
+                          ),
+                          const Spacer(),
+                          ElevatedButton(
+                            onPressed: () {
+                              if (!_canPlaceBlock(selectedDay, startSlot, duration, ignoreId: ignoreBlockId)) {
+                                if (!mounted) {
+                                  return;
+                                }
+                                ScaffoldMessenger.of(this.context).showSnackBar(
+                                  const SnackBar(content: Text('ช่วงเวลานี้ถูกใช้ไปแล้ว')),
+                                );
+                                return;
+                              }
+                              Navigator.pop(
+                                context,
+                                _BlockDetails(
+                                  dayIndex: selectedDay,
+                                  durationSlots: duration,
+                                  note: isTeaching
+                                      ? (noteController.text.trim().isEmpty
+                                          ? null
+                                          : noteController.text.trim())
+                                      : null,
+                                ),
+                              );
+                            },
+                            child: const Text('ยืนยัน'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
               ),
-              actions: <Widget>[
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('ยกเลิก'),
-                ),
-                ElevatedButton(
-                  onPressed: () {
-                    if (!_canPlaceBlock(selectedDay, startSlot, duration, ignoreId: ignoreBlockId)) {
-                      if (!mounted) {
-                        return;
-                      }
-                      ScaffoldMessenger.of(this.context).showSnackBar(
-                        const SnackBar(content: Text('ช่วงเวลานี้ถูกใช้ไปแล้ว')),
-                      );
-                      return;
-                    }
-                    Navigator.pop(
-                      context,
-                      _BlockDetails(
-                        dayIndex: selectedDay,
-                        durationSlots: duration,
-                        note: isTeaching
-                            ? (noteController.text.trim().isEmpty
-                                ? null
-                                : noteController.text.trim())
-                            : null,
-                      ),
-                    );
-                  },
-                  child: const Text('ยืนยัน'),
-                ),
-              ],
             );
           },
         );
