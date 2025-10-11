@@ -675,6 +675,9 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
     }
 
     final ScheduleBlockType? type = await _showBlockTypeChooser();
+    if (!mounted) {
+      return;
+    }
     if (type == null) {
       return;
     }
@@ -685,6 +688,9 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
       startSlot: range.startSlot,
       initialDuration: range.durationSlots,
     );
+    if (!mounted) {
+      return;
+    }
     if (detailsResult == null) {
       return;
     }
@@ -748,6 +754,9 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
       return;
     }
     final ScheduleBlockType? type = await _showBlockTypeChooser();
+    if (!mounted) {
+      return;
+    }
     if (type == null) {
       return;
     }
@@ -756,6 +765,9 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
       dayIndex: dayIndex,
       startSlot: slot,
     );
+    if (!mounted) {
+      return;
+    }
     if (details == null) {
       return;
     }
@@ -814,7 +826,7 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
                 _buildBlockOption(
                   color: const Color(0xFFFFE4E1),
                   borderColor: const Color(0xFFB71C1C),
-                  textColor: Colors.grey.shade700,
+                  textColor: Colors.grey.shade600,
                   title: 'สอน',
                   subtitle: 'บันทึกคาบสอนและรายละเอียด',
                   onTap: () => Navigator.pop(context, ScheduleBlockType.teaching),
@@ -823,7 +835,7 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
                 _buildBlockOption(
                   color: Colors.grey.shade300,
                   borderColor: Colors.grey.shade500,
-                  textColor: Colors.grey.shade800,
+                  textColor: Colors.grey.shade700,
                   title: 'ไม่ว่าง',
                   subtitle: 'กันเวลาไว้สำหรับภารกิจอื่น',
                   onTap: () => Navigator.pop(context, ScheduleBlockType.unavailable),
@@ -1206,6 +1218,10 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
       },
     );
 
+    if (!mounted) {
+      return;
+    }
+
     if (action == null) {
       return;
     }
@@ -1220,6 +1236,9 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
           initialNote: block.note,
           ignoreBlockId: block.id,
         );
+        if (!mounted) {
+          return;
+        }
         if (details != null) {
           if (!_canPlaceBlock(details.dayIndex, block.startSlot, details.durationSlots, ignoreId: block.id)) {
             ScaffoldMessenger.of(context).showSnackBar(
@@ -1263,6 +1282,9 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
             initialDuration: block.durationSlots,
             ignoreBlockId: block.id,
           );
+          if (!mounted) {
+            return;
+          }
           if (details != null) {
             if (!_canPlaceBlock(details.dayIndex, block.startSlot, details.durationSlots, ignoreId: block.id)) {
               ScaffoldMessenger.of(context).showSnackBar(
@@ -1958,10 +1980,10 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
                           duration: const Duration(milliseconds: 120),
                           curve: Curves.easeOut,
                           decoration: BoxDecoration(
-                            color: const Color(0xFFFFCDD2).withOpacity(0.55),
+                            color: Colors.grey.shade300.withOpacity(0.75),
                             borderRadius: BorderRadius.circular(12),
                             border: Border.all(
-                              color: const Color(0xFFB71C1C).withOpacity(0.5),
+                              color: Colors.grey.shade500.withOpacity(0.7),
                               width: 1.2,
                             ),
                           ),
