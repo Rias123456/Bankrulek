@@ -182,6 +182,9 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
   Offset? _pendingRangeGlobalOffset;
   bool _canScrollBackward = false;
   bool _canScrollForward = false;
+  bool _scrollIndicatorUpdateScheduled = false;
+  bool _pendingCanScrollBackward = false;
+  bool _pendingCanScrollForward = false;
 
   static const List<String> _dayLabels = <String>['เสาร์', 'อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัส', 'ศุกร์'];
   static const int _scheduleStartHour = 7;
@@ -361,12 +364,28 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
         position.pixels > position.minScrollExtent + 1.0 && position.maxScrollExtent > position.minScrollExtent;
     final bool canGoForward =
         position.pixels < position.maxScrollExtent - 1.0 && position.maxScrollExtent > position.minScrollExtent;
-    if (canGoBackward != _canScrollBackward || canGoForward != _canScrollForward) {
-      setState(() {
-        _canScrollBackward = canGoBackward;
-        _canScrollForward = canGoForward;
-      });
+    _scheduleScrollIndicatorUpdate(canGoBackward: canGoBackward, canGoForward: canGoForward);
+  }
+
+  void _scheduleScrollIndicatorUpdate({required bool canGoBackward, required bool canGoForward}) {
+    _pendingCanScrollBackward = canGoBackward;
+    _pendingCanScrollForward = canGoForward;
+    if (_scrollIndicatorUpdateScheduled) {
+      return;
     }
+    _scrollIndicatorUpdateScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _scrollIndicatorUpdateScheduled = false;
+      if (!mounted) {
+        return;
+      }
+      if (_canScrollBackward != _pendingCanScrollBackward || _canScrollForward != _pendingCanScrollForward) {
+        setState(() {
+          _canScrollBackward = _pendingCanScrollBackward;
+          _canScrollForward = _pendingCanScrollForward;
+        });
+      }
+    });
   }
 
   Future<void> _scrollScheduleBy(double delta) async {
@@ -1910,15 +1929,17 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
     final List<int> hourLabels =
         List<int>.generate(_scheduleEndHour - _scheduleStartHour, (int index) => _scheduleStartHour + index);
     final double scrollStep = _scheduleHourWidth * 2;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: <Widget>[
-        Align(
-          alignment: Alignment.centerRight,
-          child: Wrap(
-            spacing: 8,
-            crossAxisAlignment: WrapCrossAlignment.center,
+    return SizedBox(
+      width: double.infinity,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Align(
+            alignment: Alignment.centerRight,
+            child: Wrap(
+              spacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
             children: <Widget>[
               Text(
                 'เลื่อนตารางเวลา',
