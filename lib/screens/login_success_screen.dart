@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:math' as math;
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
@@ -153,6 +154,8 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
   final TextEditingController _phoneController = TextEditingController();
   final TextEditingController _currentActivityController = TextEditingController();
   final TextEditingController _travelDurationController = TextEditingController();
+  final ScrollController _scheduleScrollController = ScrollController();
+  ScrollHoldController? _scheduleHoldController;
 
   List<String> _selectedSubjects = <String>[];
   String? _profileImageBase64;
@@ -166,6 +169,19 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
   double _dragAccumulatedDx = 0;
   double _dragAccumulatedDy = 0;
   bool _isDragPrimed = false;
+  bool _isRangeSelecting = false;
+  int? _rangeSelectionDayIndex;
+  int? _rangeSelectionAnchorSlot;
+  int? _rangeSelectionStartDayIndex;
+  double? _rangeSelectionStartGlobalDy;
+  _SelectionRange? _currentSelectionRange;
+  bool _rangeSelectionMoved = false;
+  bool _rangeSelectionPrimed = false;
+  int? _pendingRangeDayIndex;
+  Offset? _pendingRangeLocalOffset;
+  Offset? _pendingRangeGlobalOffset;
+  bool _canScrollBackward = false;
+  bool _canScrollForward = false;
 
   static const List<String> _dayLabels = <String>['เสาร์', 'อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัส', 'ศุกร์'];
   static const int _scheduleStartHour = 7;
@@ -173,6 +189,7 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
   static const double _scheduleHourWidth = 96;
   static const double _scheduleRowHeight = 72;
   static const double _dayLabelWidth = 80;
+  static const double _rangeSelectionActivationThreshold = 8;
   static const String _scheduleSerializationPrefix = 'SCHEDULE_V1:';
 
   int get _totalSlots => (_scheduleEndHour - _scheduleStartHour) * 2;
@@ -180,13 +197,23 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
   double get _slotWidth => _scheduleHourWidth / 2;
 
   @override
+  void initState() {
+    super.initState();
+    _scheduleScrollController.addListener(_handleScheduleScrollChanged);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _handleScheduleScrollChanged());
+  }
+
+  @override
   void dispose() {
+    _scheduleScrollController.removeListener(_handleScheduleScrollChanged);
     _fullNameController.dispose();
     _nicknameController.dispose();
     _lineIdController.dispose();
     _phoneController.dispose();
     _currentActivityController.dispose();
     _travelDurationController.dispose();
+    _releaseScheduleHold();
+    _scheduleScrollController.dispose();
     super.dispose();
   }
 
@@ -320,6 +347,64 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
     });
   }
 
+  void _handleScrollHoldCanceled() {
+    _scheduleHoldController = null;
+  }
+
+  void _handleScheduleScrollChanged() {
+    if (!_scheduleScrollController.hasClients || !mounted) {
+      return;
+    }
+    final ScrollPosition position = _scheduleScrollController.position;
+    final bool canGoBackward =
+        position.pixels > position.minScrollExtent + 1.0 && position.maxScrollExtent > position.minScrollExtent;
+    final bool canGoForward =
+        position.pixels < position.maxScrollExtent - 1.0 && position.maxScrollExtent > position.minScrollExtent;
+    if (canGoBackward != _canScrollBackward || canGoForward != _canScrollForward) {
+      setState(() {
+        _canScrollBackward = canGoBackward;
+        _canScrollForward = canGoForward;
+      });
+    }
+  }
+
+  Future<void> _scrollScheduleBy(double delta) async {
+    if (!_scheduleScrollController.hasClients) {
+      return;
+    }
+    final ScrollPosition position = _scheduleScrollController.position;
+    final double target = (position.pixels + delta)
+        .clamp(position.minScrollExtent, position.maxScrollExtent);
+    if ((target - position.pixels).abs() < 0.5) {
+      return;
+    }
+    await _scheduleScrollController.animateTo(
+      target,
+      duration: const Duration(milliseconds: 260),
+      curve: Curves.easeOut,
+    );
+  }
+
+  void _acquireScheduleHold() {
+    if (_scheduleHoldController != null || !_scheduleScrollController.hasClients) {
+      return;
+    }
+    _scheduleHoldController =
+        _scheduleScrollController.position.hold(_handleScrollHoldCanceled);
+  }
+
+  void _releaseScheduleHold() {
+    _scheduleHoldController?.cancel();
+    _scheduleHoldController = null;
+  }
+
+  void _clearPendingRangeSelection() {
+    _pendingRangeDayIndex = null;
+    _pendingRangeLocalOffset = null;
+    _pendingRangeGlobalOffset = null;
+    _rangeSelectionPrimed = false;
+  }
+
   int _clampInt(int value, int min, int max) {
     if (value < min) {
       return min;
@@ -412,9 +497,249 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
     return '$hour:$minute';
   }
 
+  int _slotFromDx(double dx) {
+    final double maxWidth = _totalSlots * _slotWidth;
+    final double adjustedDx = dx.clamp(0, maxWidth - 0.001);
+    return _clampInt((adjustedDx / _slotWidth).floor(), 0, _totalSlots - 1);
+  }
+
+  _SelectionRange _resolveSelectionRange(int dayIndex, int anchorSlot, int targetSlot) {
+    final int normalizedTarget = _clampInt(targetSlot, 0, _totalSlots - 1);
+    int start = math.min(anchorSlot, normalizedTarget);
+    int end = math.max(anchorSlot, normalizedTarget);
+    if (!_canPlaceBlock(dayIndex, anchorSlot, 1)) {
+      return _SelectionRange(startSlot: anchorSlot, durationSlots: 1);
+    }
+    if (normalizedTarget >= anchorSlot) {
+      while (end > anchorSlot && !_canPlaceBlock(dayIndex, start, end - start + 1)) {
+        end -= 1;
+      }
+      if (!_canPlaceBlock(dayIndex, start, end - start + 1)) {
+        start = anchorSlot;
+        end = anchorSlot;
+      }
+    } else {
+      while (start < anchorSlot && !_canPlaceBlock(dayIndex, start, end - start + 1)) {
+        start += 1;
+      }
+      if (!_canPlaceBlock(dayIndex, start, end - start + 1)) {
+        start = anchorSlot;
+        end = anchorSlot;
+      }
+    }
+    return _SelectionRange(startSlot: start, durationSlots: end - start + 1);
+  }
+
+  void _handleRangePanDown(int dayIndex, DragDownDetails details) {
+    _acquireScheduleHold();
+    _pendingRangeDayIndex = dayIndex;
+    _pendingRangeLocalOffset = details.localPosition;
+    _pendingRangeGlobalOffset = details.globalPosition;
+    _rangeSelectionPrimed = true;
+  }
+
+  void _handleRangePanStart(int dayIndex, DragStartDetails details) {
+    _acquireScheduleHold();
+    _pendingRangeDayIndex ??= dayIndex;
+    _pendingRangeLocalOffset ??= details.localPosition;
+    _pendingRangeGlobalOffset ??= details.globalPosition;
+  }
+
+  void _handleRangePanUpdate(int dayIndex, DragUpdateDetails details) {
+    if (_isRangeSelecting) {
+      _updateRangeSelection(details);
+      return;
+    }
+    if (!_rangeSelectionPrimed ||
+        _pendingRangeDayIndex == null ||
+        _pendingRangeLocalOffset == null ||
+        _pendingRangeGlobalOffset == null) {
+      return;
+    }
+    final Offset delta = details.globalPosition - _pendingRangeGlobalOffset!;
+    if (delta.distanceSquared <
+        _rangeSelectionActivationThreshold * _rangeSelectionActivationThreshold) {
+      return;
+    }
+    _startRangeSelection(
+      _pendingRangeDayIndex!,
+      _pendingRangeLocalOffset!,
+      _pendingRangeGlobalOffset!,
+    );
+    if (_isRangeSelecting) {
+      _updateRangeSelection(details);
+    }
+  }
+
+  void _handleRangePanEnd(DragEndDetails details) {
+    final bool shouldCancel = !_isRangeSelecting || !_rangeSelectionMoved;
+    _finishRangeSelection(details: details, cancelled: shouldCancel);
+  }
+
+  void _handleRangePanCancel() {
+    _finishRangeSelection(cancelled: true);
+  }
+
+  void _startRangeSelection(int dayIndex, Offset localPosition, Offset globalPosition) {
+    if (_isRangeSelecting) {
+      return;
+    }
+    final int slot = _slotFromDx(localPosition.dx);
+    if (!_canPlaceBlock(dayIndex, slot, 1)) {
+      _cancelRangeSelection();
+      return;
+    }
+    setState(() {
+      _isRangeSelecting = true;
+      _rangeSelectionDayIndex = dayIndex;
+      _rangeSelectionStartDayIndex = dayIndex;
+      _rangeSelectionAnchorSlot = slot;
+      _rangeSelectionStartGlobalDy = globalPosition.dy;
+      _currentSelectionRange = _SelectionRange(startSlot: slot, durationSlots: 1);
+      _rangeSelectionMoved = false;
+    });
+    _clearPendingRangeSelection();
+  }
+
+  void _updateRangeSelection(DragUpdateDetails details) {
+    if (!_isRangeSelecting ||
+        _rangeSelectionDayIndex == null ||
+        _rangeSelectionAnchorSlot == null ||
+        _rangeSelectionStartDayIndex == null ||
+        _rangeSelectionStartGlobalDy == null) {
+      return;
+    }
+    final int targetSlot = _slotFromDx(details.localPosition.dx);
+    final int anchor = _rangeSelectionAnchorSlot!;
+    final double verticalDelta = details.globalPosition.dy - _rangeSelectionStartGlobalDy!;
+    final int dayOffset = verticalDelta ~/ _scheduleRowHeight;
+    final int targetDay =
+        _clampInt(_rangeSelectionStartDayIndex! + dayOffset, 0, _dayLabels.length - 1);
+    final _SelectionRange resolved = _resolveSelectionRange(targetDay, anchor, targetSlot);
+    final bool moved = targetSlot != anchor || targetDay != _rangeSelectionDayIndex;
+    if (_currentSelectionRange?.startSlot != resolved.startSlot ||
+        _currentSelectionRange?.durationSlots != resolved.durationSlots) {
+      setState(() {
+        _currentSelectionRange = resolved;
+        _rangeSelectionDayIndex = targetDay;
+        _rangeSelectionMoved = _rangeSelectionMoved || moved;
+      });
+    } else if (moved && !_rangeSelectionMoved) {
+      setState(() {
+        _rangeSelectionDayIndex = targetDay;
+        _rangeSelectionMoved = true;
+      });
+    } else if (_rangeSelectionDayIndex != targetDay) {
+      setState(() {
+        _rangeSelectionDayIndex = targetDay;
+      });
+    }
+  }
+
+  Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = false}) async {
+    if (!_isRangeSelecting) {
+      _releaseScheduleHold();
+      _clearPendingRangeSelection();
+      _rangeSelectionMoved = false;
+      return;
+    }
+    final _SelectionRange? range = _currentSelectionRange;
+    final int? dayIndex = _rangeSelectionDayIndex;
+    final bool hasMoved = _rangeSelectionMoved;
+    if (cancelled || range == null || dayIndex == null) {
+      _cancelRangeSelection();
+      return;
+    }
+    if (details != null) {
+      final double speed = details.velocity.pixelsPerSecond.distance;
+      if (speed > 900 && hasMoved) {
+        _cancelRangeSelection();
+        return;
+      }
+    }
+
+    setState(() {
+      _isRangeSelecting = false;
+      _rangeSelectionDayIndex = null;
+      _rangeSelectionAnchorSlot = null;
+      _rangeSelectionStartDayIndex = null;
+      _rangeSelectionStartGlobalDy = null;
+      _currentSelectionRange = null;
+      _rangeSelectionMoved = false;
+    });
+    _releaseScheduleHold();
+    _clearPendingRangeSelection();
+
+    if (!_canPlaceBlock(dayIndex, range.startSlot, range.durationSlots)) {
+      return;
+    }
+
+    final ScheduleBlockType? type = await _showBlockTypeChooser();
+    if (!mounted) {
+      return;
+    }
+    if (type == null) {
+      return;
+    }
+
+    final _BlockDetails? detailsResult = await _collectBlockDetails(
+      type: type,
+      dayIndex: dayIndex,
+      startSlot: range.startSlot,
+      initialDuration: range.durationSlots,
+    );
+    if (!mounted) {
+      return;
+    }
+    if (detailsResult == null) {
+      return;
+    }
+
+    if (!_canPlaceBlock(detailsResult.dayIndex, range.startSlot, detailsResult.durationSlots)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('ช่วงเวลานี้ถูกใช้ไปแล้ว')),
+      );
+      return;
+    }
+
+    final ScheduleBlock newBlock = ScheduleBlock(
+      id: _nextBlockId++,
+      dayIndex: detailsResult.dayIndex,
+      startSlot: range.startSlot,
+      durationSlots: detailsResult.durationSlots,
+      type: type,
+      note: type == ScheduleBlockType.teaching ? detailsResult.note : null,
+    );
+
+    setState(() {
+      _scheduleBlocks = <ScheduleBlock>[..._scheduleBlocks, newBlock];
+      _legacyScheduleNote = null;
+      _sortBlocks();
+    });
+  }
+
+  void _cancelRangeSelection() {
+    if (!_isRangeSelecting && _currentSelectionRange == null) {
+      _releaseScheduleHold();
+      _clearPendingRangeSelection();
+      _rangeSelectionMoved = false;
+      return;
+    }
+    setState(() {
+      _isRangeSelecting = false;
+      _rangeSelectionDayIndex = null;
+      _rangeSelectionAnchorSlot = null;
+      _rangeSelectionStartDayIndex = null;
+      _rangeSelectionStartGlobalDy = null;
+      _currentSelectionRange = null;
+      _rangeSelectionMoved = false;
+    });
+    _releaseScheduleHold();
+    _clearPendingRangeSelection();
+  }
+
   Future<void> _handleGridTap(int dayIndex, double dx) async {
-    final double adjustedDx = dx.clamp(0, double.infinity);
-    final int slot = _clampInt((adjustedDx / _slotWidth).floor(), 0, _totalSlots - 1);
+    final int slot = _slotFromDx(dx);
     if (!_canPlaceBlock(dayIndex, slot, 1)) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('ช่วงเวลานี้ถูกใช้ไปแล้ว')),
@@ -429,6 +754,9 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
       return;
     }
     final ScheduleBlockType? type = await _showBlockTypeChooser();
+    if (!mounted) {
+      return;
+    }
     if (type == null) {
       return;
     }
@@ -436,14 +764,22 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
       type: type,
       dayIndex: dayIndex,
       startSlot: slot,
-      maxDurationSlots: maxDuration,
     );
+    if (!mounted) {
+      return;
+    }
     if (details == null) {
+      return;
+    }
+    if (!_canPlaceBlock(details.dayIndex, slot, details.durationSlots)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('ช่วงเวลานี้ถูกใช้ไปแล้ว')),
+      );
       return;
     }
     final ScheduleBlock newBlock = ScheduleBlock(
       id: _nextBlockId++,
-      dayIndex: dayIndex,
+      dayIndex: details.dayIndex,
       startSlot: slot,
       durationSlots: details.durationSlots,
       type: type,
@@ -490,7 +826,7 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
                 _buildBlockOption(
                   color: const Color(0xFFFFE4E1),
                   borderColor: const Color(0xFFB71C1C),
-                  textColor: Colors.grey.shade700,
+                  textColor: Colors.grey.shade600,
                   title: 'สอน',
                   subtitle: 'บันทึกคาบสอนและรายละเอียด',
                   onTap: () => Navigator.pop(context, ScheduleBlockType.teaching),
@@ -499,7 +835,7 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
                 _buildBlockOption(
                   color: Colors.grey.shade300,
                   borderColor: Colors.grey.shade500,
-                  textColor: Colors.grey.shade800,
+                  textColor: Colors.grey.shade700,
                   title: 'ไม่ว่าง',
                   subtitle: 'กันเวลาไว้สำหรับภารกิจอื่น',
                   onTap: () => Navigator.pop(context, ScheduleBlockType.unavailable),
@@ -557,36 +893,90 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
     required ScheduleBlockType type,
     required int dayIndex,
     required int startSlot,
-    required int maxDurationSlots,
     int? initialDuration,
     String? initialNote,
+    int? ignoreBlockId,
   }) async {
-    if (maxDurationSlots <= 0) {
+    final List<int> maxDurationPerDay = List<int>.generate(
+      _dayLabels.length,
+      (int index) => _calculateMaxDuration(index, startSlot, ignoreBlockId),
+    );
+    if (maxDurationPerDay.every((int value) => value <= 0)) {
       return null;
     }
+
+    int selectedDay = dayIndex;
+    if (maxDurationPerDay[selectedDay] <= 0) {
+      final int fallbackIndex = maxDurationPerDay.indexWhere((int value) => value > 0);
+      if (fallbackIndex == -1) {
+        return null;
+      }
+      selectedDay = fallbackIndex;
+    }
+
+    int maxForSelectedDay = math.max(1, maxDurationPerDay[selectedDay]);
     int duration = initialDuration != null
-        ? _clampInt(initialDuration, 1, maxDurationSlots)
-        : math.min(type == ScheduleBlockType.teaching ? math.min(2, maxDurationSlots) : 1, maxDurationSlots);
+        ? _clampInt(initialDuration, 1, maxForSelectedDay)
+        : math.min(
+            type == ScheduleBlockType.teaching ? math.min(2, maxForSelectedDay) : 1,
+            maxForSelectedDay,
+          );
     final TextEditingController noteController = TextEditingController(text: initialNote ?? '');
 
-    return showDialog<_BlockDetails>(
+    final _BlockDetails? result = await showDialog<_BlockDetails>(
       context: context,
-      builder: (BuildContext context) {
+      builder: (BuildContext _dialogContext) {
         return StatefulBuilder(
           builder: (BuildContext context, StateSetter setState) {
+            final bool isTeaching = type == ScheduleBlockType.teaching;
             return AlertDialog(
-              title: Text(type == ScheduleBlockType.teaching ? 'เพิ่มช่วงเวลาสอน' : 'ทำเครื่องหมายไม่ว่าง'),
+              title: Text(isTeaching ? 'เพิ่มช่วงเวลาสอน' : 'ทำเครื่องหมายไม่ว่าง'),
               content: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
                     Text(
-                      '${_dayLabels[dayIndex]} ${_formatSlotRange(startSlot, duration)}',
+                      '${_dayLabels[selectedDay]} ${_formatSlotRange(startSlot, duration)}',
                       style: const TextStyle(fontWeight: FontWeight.w600),
                     ),
                     const SizedBox(height: 12),
-                    if (type == ScheduleBlockType.teaching) ...<Widget>[
+                    DropdownButtonFormField<int>(
+                      value: selectedDay,
+                      decoration: const InputDecoration(labelText: 'วัน'),
+                      items: List<DropdownMenuItem<int>>.generate(
+                        _dayLabels.length,
+                        (int index) {
+                          final bool enabled = maxDurationPerDay[index] > 0;
+                          return DropdownMenuItem<int>(
+                            value: index,
+                            enabled: enabled,
+                            child: Row(
+                              children: <Widget>[
+                                Expanded(child: Text(_dayLabels[index])),
+                                if (!enabled)
+                                  Text(
+                                    'เต็ม',
+                                    style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
+                                  ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+                      onChanged: (int? value) {
+                        if (value == null || maxDurationPerDay[value] <= 0) {
+                          return;
+                        }
+                        setState(() {
+                          selectedDay = value;
+                          maxForSelectedDay = math.max(1, maxDurationPerDay[value]);
+                          duration = _clampInt(duration, 1, maxForSelectedDay);
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 16),
+                    if (isTeaching) ...<Widget>[
                       TextField(
                         controller: noteController,
                         autofocus: true,
@@ -615,9 +1005,9 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
                           style: const TextStyle(fontWeight: FontWeight.w600),
                         ),
                         IconButton(
-                          onPressed: duration < maxDurationSlots
+                          onPressed: duration < maxForSelectedDay
                               ? () => setState(() {
-                                    duration = math.min(maxDurationSlots, duration + 1);
+                                    duration = math.min(maxForSelectedDay, duration + 1);
                                   })
                               : null,
                           icon: const Icon(Icons.add_circle_outline),
@@ -642,11 +1032,25 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
                 ),
                 ElevatedButton(
                   onPressed: () {
+                    if (!_canPlaceBlock(selectedDay, startSlot, duration, ignoreId: ignoreBlockId)) {
+                      if (!mounted) {
+                        return;
+                      }
+                      ScaffoldMessenger.of(this.context).showSnackBar(
+                        const SnackBar(content: Text('ช่วงเวลานี้ถูกใช้ไปแล้ว')),
+                      );
+                      return;
+                    }
                     Navigator.pop(
                       context,
                       _BlockDetails(
+                        dayIndex: selectedDay,
                         durationSlots: duration,
-                        note: type == ScheduleBlockType.teaching ? noteController.text.trim() : null,
+                        note: isTeaching
+                            ? (noteController.text.trim().isEmpty
+                                ? null
+                                : noteController.text.trim())
+                            : null,
                       ),
                     );
                   },
@@ -658,6 +1062,8 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
         );
       },
     );
+    noteController.dispose();
+    return result;
   }
 
   void _primeBlockDrag(ScheduleBlock block) {
@@ -812,30 +1218,41 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
       },
     );
 
+    if (!mounted) {
+      return;
+    }
+
     if (action == null) {
       return;
     }
 
     switch (action) {
       case _BlockAction.edit:
-        final int maxDuration = math.max(
-          block.durationSlots,
-          _calculateMaxDuration(block.dayIndex, block.startSlot, block.id),
-        );
         final _BlockDetails? details = await _collectBlockDetails(
           type: block.type,
           dayIndex: block.dayIndex,
           startSlot: block.startSlot,
-          maxDurationSlots: maxDuration,
           initialDuration: block.durationSlots,
           initialNote: block.note,
+          ignoreBlockId: block.id,
         );
+        if (!mounted) {
+          return;
+        }
         if (details != null) {
+          if (!_canPlaceBlock(details.dayIndex, block.startSlot, details.durationSlots, ignoreId: block.id)) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('ช่วงเวลานี้ถูกใช้ไปแล้ว')),
+            );
+            return;
+          }
           setState(() {
             _scheduleBlocks = _scheduleBlocks
                 .map(
                   (ScheduleBlock current) => current.id == block.id
                       ? current.copyWith(
+                          dayIndex: details.dayIndex,
+                          startSlot: block.startSlot,
                           durationSlots: details.durationSlots,
                           note: block.type == ScheduleBlockType.teaching ? details.note : null,
                         )
@@ -858,23 +1275,30 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
                 .toList();
           });
         } else {
-          final int maxDuration = math.max(
-            block.durationSlots,
-            _calculateMaxDuration(block.dayIndex, block.startSlot, block.id),
-          );
           final _BlockDetails? details = await _collectBlockDetails(
             type: ScheduleBlockType.teaching,
             dayIndex: block.dayIndex,
             startSlot: block.startSlot,
-            maxDurationSlots: maxDuration,
             initialDuration: block.durationSlots,
+            ignoreBlockId: block.id,
           );
+          if (!mounted) {
+            return;
+          }
           if (details != null) {
+            if (!_canPlaceBlock(details.dayIndex, block.startSlot, details.durationSlots, ignoreId: block.id)) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('ช่วงเวลานี้ถูกใช้ไปแล้ว')),
+              );
+              return;
+            }
             setState(() {
               _scheduleBlocks = _scheduleBlocks
                   .map(
                     (ScheduleBlock current) => current.id == block.id
                         ? current.copyWith(
+                            dayIndex: details.dayIndex,
+                            startSlot: block.startSlot,
                             type: ScheduleBlockType.teaching,
                             durationSlots: details.durationSlots,
                             note: details.note,
@@ -1362,7 +1786,7 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
             _buildScheduleGrid(),
             const SizedBox(height: 8),
             Text(
-              'แตะเลือกช่วงเวลาเพื่อเพิ่มบล็อค ลากเพื่อย้ายไปยังวันหรือเวลาอื่นได้',
+              'แตะหรือลากครอบช่วงเวลาเพื่อเพิ่มบล็อค และลากบล็อคเพื่อย้ายไปยังวันหรือเวลาอื่นได้',
               style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
             ),
             if (_legacyScheduleNote != null && _legacyScheduleNote!.isNotEmpty) ...<Widget>[
@@ -1408,63 +1832,97 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
     final double gridWidth = (_scheduleEndHour - _scheduleStartHour) * _scheduleHourWidth;
     final List<int> hourLabels =
         List<int>.generate(_scheduleEndHour - _scheduleStartHour, (int index) => _scheduleStartHour + index);
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Row(
+    final double scrollStep = _scheduleHourWidth * 2;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Align(
+          alignment: Alignment.centerRight,
+          child: Wrap(
+            spacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: <Widget>[
-              SizedBox(
-                width: _dayLabelWidth,
-                child: const SizedBox.shrink(),
+              Text(
+                'เลื่อนตารางเวลา',
+                style: TextStyle(color: Colors.grey.shade600, fontSize: 12, fontWeight: FontWeight.w600),
               ),
-              SizedBox(
-                width: gridWidth,
-                child: Stack(
+              IconButton(
+                onPressed: _canScrollBackward ? () => _scrollScheduleBy(-scrollStep) : null,
+                icon: const Icon(Icons.chevron_left),
+                tooltip: 'เลื่อนไปช่วงเวลาก่อนหน้า',
+              ),
+              IconButton(
+                onPressed: _canScrollForward ? () => _scrollScheduleBy(scrollStep) : null,
+                icon: const Icon(Icons.chevron_right),
+                tooltip: 'เลื่อนไปช่วงเวลาถัดไป',
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+        ClipRect(
+          child: SingleChildScrollView(
+            controller: _scheduleScrollController,
+            physics: const NeverScrollableScrollPhysics(),
+            scrollDirection: Axis.horizontal,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Row(
                   children: <Widget>[
-                    Row(
-                      children: <Widget>[
-                        ...hourLabels.map(
-                          (int hour) => SizedBox(
-                            width: _scheduleHourWidth,
-                            child: Center(
-                              child: Text(
-                                _formatTimeLabel(hour),
-                                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12),
+                    SizedBox(
+                      width: _dayLabelWidth,
+                      child: const SizedBox.shrink(),
+                    ),
+                    SizedBox(
+                      width: gridWidth,
+                      child: Stack(
+                        children: <Widget>[
+                          Row(
+                            children: <Widget>[
+                              ...hourLabels.map(
+                                (int hour) => SizedBox(
+                                  width: _scheduleHourWidth,
+                                  child: Center(
+                                    child: Text(
+                                      _formatTimeLabel(hour),
+                                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          Positioned(
+                            right: 0,
+                            child: SizedBox(
+                              width: _scheduleHourWidth / 2,
+                              child: Align(
+                                alignment: Alignment.centerRight,
+                                child: Text(
+                                  _formatTimeLabel(_scheduleEndHour),
+                                  style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12),
+                                ),
                               ),
                             ),
                           ),
-                        ),
-                      ],
-                    ),
-                    Positioned(
-                      right: 0,
-                      child: SizedBox(
-                        width: _scheduleHourWidth / 2,
-                        child: Align(
-                          alignment: Alignment.centerRight,
-                          child: Text(
-                            _formatTimeLabel(_scheduleEndHour),
-                            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12),
-                          ),
-                        ),
+                        ],
                       ),
                     ),
                   ],
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Column(
-            children: List<Widget>.generate(
-              _dayLabels.length,
-              (int index) => _buildDayRow(index, gridWidth),
+                const SizedBox(height: 8),
+                Column(
+                  children: List<Widget>.generate(
+                    _dayLabels.length,
+                    (int index) => _buildDayRow(index, gridWidth),
+                  ),
+                ),
+              ],
             ),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
@@ -1492,7 +1950,13 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
             width: gridWidth,
             child: GestureDetector(
               behavior: HitTestBehavior.opaque,
+              dragStartBehavior: DragStartBehavior.down,
               onTapUp: (TapUpDetails details) => _handleGridTap(dayIndex, details.localPosition.dx),
+              onPanDown: (DragDownDetails details) => _handleRangePanDown(dayIndex, details),
+              onPanStart: (DragStartDetails details) => _handleRangePanStart(dayIndex, details),
+              onPanUpdate: (DragUpdateDetails details) => _handleRangePanUpdate(dayIndex, details),
+              onPanEnd: _handleRangePanEnd,
+              onPanCancel: _handleRangePanCancel,
               child: Stack(
                 children: <Widget>[
                   Positioned.fill(
@@ -1503,6 +1967,29 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
                       ),
                     ),
                   ),
+                  if (_isRangeSelecting &&
+                      _rangeSelectionDayIndex == dayIndex &&
+                      _currentSelectionRange != null)
+                    Positioned(
+                      left: _currentSelectionRange!.startSlot * _slotWidth,
+                      top: 6,
+                      bottom: 6,
+                      width: _currentSelectionRange!.durationSlots * _slotWidth,
+                      child: IgnorePointer(
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 120),
+                          curve: Curves.easeOut,
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade300.withOpacity(0.75),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: Colors.grey.shade500.withOpacity(0.7),
+                              width: 1.2,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
                   for (final ScheduleBlock block in dayBlocks) _buildScheduleBlock(block),
                 ],
               ),
@@ -1749,10 +2236,22 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
 }
 
 class _BlockDetails {
-  const _BlockDetails({required this.durationSlots, this.note});
+  const _BlockDetails({
+    required this.dayIndex,
+    required this.durationSlots,
+    this.note,
+  });
 
+  final int dayIndex;
   final int durationSlots;
   final String? note;
+}
+
+class _SelectionRange {
+  const _SelectionRange({required this.startSlot, required this.durationSlots});
+
+  final int startSlot;
+  final int durationSlots;
 }
 
 enum _BlockAction { edit, toggleType, delete }
