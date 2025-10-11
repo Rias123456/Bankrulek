@@ -192,9 +192,9 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
   static const double _rangeSelectionActivationThreshold = 8;
   static const String _scheduleSerializationPrefix = 'SCHEDULE_V1:';
 
-  int get _totalSlots => (_scheduleEndHour - _scheduleStartHour) * 2;
+  int get _totalSlots => (_scheduleEndHour - _scheduleStartHour);
 
-  double get _slotWidth => _scheduleHourWidth / 2;
+  double get _slotWidth => _scheduleHourWidth;
 
   @override
   void initState() {
@@ -470,7 +470,7 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
   }
 
   String _formatDurationLabel(int slots) {
-    final int minutes = slots * 30;
+    final int minutes = slots * 60;
     final int hours = minutes ~/ 60;
     final int remainingMinutes = minutes % 60;
     if (hours > 0 && remainingMinutes > 0) {
@@ -486,8 +486,8 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
 
   String _formatSlotRange(int startSlot, int durationSlots) {
     final DateTime base = DateTime(2020, 1, 1, _scheduleStartHour);
-    final DateTime start = base.add(Duration(minutes: startSlot * 30));
-    final DateTime end = base.add(Duration(minutes: (startSlot + durationSlots) * 30));
+    final DateTime start = base.add(Duration(minutes: startSlot * 60));
+    final DateTime end = base.add(Duration(minutes: (startSlot + durationSlots) * 60));
     return '${_formatTime(start)} - ${_formatTime(end)}';
   }
 
@@ -826,7 +826,7 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
                 _buildBlockOption(
                   color: const Color(0xFFFFE4E1),
                   borderColor: const Color(0xFFB71C1C),
-                  textColor: Colors.grey.shade600,
+                  textColor: Colors.grey.shade500,
                   title: 'สอน',
                   subtitle: 'บันทึกคาบสอนและรายละเอียด',
                   onTap: () => Navigator.pop(context, ScheduleBlockType.teaching),
@@ -1896,7 +1896,7 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
                           Positioned(
                             right: 0,
                             child: SizedBox(
-                              width: _scheduleHourWidth / 2,
+                              width: _scheduleHourWidth,
                               child: Align(
                                 alignment: Alignment.centerRight,
                                 child: Text(
@@ -2270,17 +2270,9 @@ class _ScheduleGridPainter extends CustomPainter {
     final Paint mainPaint = Paint()
       ..color = const Color(0xFFE0E0E0)
       ..strokeWidth = 1;
-    final Paint halfPaint = Paint()
-      ..color = const Color(0xFFF2F2F2)
-      ..strokeWidth = 1;
-
     for (int hour = 0; hour <= totalHours; hour++) {
       final double x = hour * hourWidth;
       canvas.drawLine(Offset(x, 0), Offset(x, size.height), mainPaint);
-      if (hour < totalHours) {
-        final double halfX = x + hourWidth / 2;
-        canvas.drawLine(Offset(halfX, 0), Offset(halfX, size.height), halfPaint);
-      }
     }
     canvas.drawLine(Offset(0, 0), Offset(size.width, 0), mainPaint);
     canvas.drawLine(Offset(0, size.height), Offset(size.width, size.height), mainPaint);
