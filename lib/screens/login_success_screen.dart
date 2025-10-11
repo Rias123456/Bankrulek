@@ -1064,7 +1064,10 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
                         children: <Widget>[
                           Expanded(
                             child: OutlinedButton(
-                              onPressed: () => Navigator.pop(bottomSheetContext),
+                              onPressed: () {
+                                FocusScope.of(bottomSheetContext).unfocus();
+                                Navigator.pop(bottomSheetContext);
+                              },
                               child: const Text('ยกเลิก'),
                             ),
                           ),
@@ -1072,7 +1075,8 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
                           Expanded(
                             child: ElevatedButton(
                               onPressed: () {
-                                if (isTeaching && noteController.text.trim().isEmpty) {
+                                final String trimmedNote = noteController.text.trim();
+                                if (isTeaching && trimmedNote.isEmpty) {
                                   setModalState(() {
                                     noteError = 'กรุณากรอกรายละเอียดการสอน';
                                   });
@@ -1086,12 +1090,13 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
                                   }
                                   return;
                                 }
+                                FocusScope.of(bottomSheetContext).unfocus();
                                 Navigator.pop(
                                   bottomSheetContext,
                                   _BlockDetails(
                                     dayIndex: selectedDay,
                                     durationSlots: duration,
-                                    note: isTeaching ? noteController.text.trim() : null,
+                                    note: isTeaching ? trimmedNote : null,
                                   ),
                                 );
                               },
