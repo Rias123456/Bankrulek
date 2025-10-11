@@ -20,6 +20,8 @@ class ScheduleBlock {
     required this.durationSlots,
     required this.type,
     this.note,
+    this.date,
+    this.isRecurring = false,
   });
 
   final int id;
@@ -28,6 +30,8 @@ class ScheduleBlock {
   final int durationSlots;
   final ScheduleBlockType type;
   final String? note;
+  final DateTime? date;
+  final bool isRecurring;
 
   ScheduleBlock copyWith({
     int? id,
@@ -36,6 +40,8 @@ class ScheduleBlock {
     int? durationSlots,
     ScheduleBlockType? type,
     String? note,
+    DateTime? date,
+    bool? isRecurring,
     bool clearNote = false,
   }) {
     final ScheduleBlockType resolvedType = type ?? this.type;
@@ -57,6 +63,8 @@ class ScheduleBlock {
       durationSlots: durationSlots ?? this.durationSlots,
       type: resolvedType,
       note: resolvedNote,
+      date: date ?? this.date,
+      isRecurring: isRecurring ?? this.isRecurring,
     );
   }
 
@@ -67,6 +75,8 @@ class ScheduleBlock {
       'start': startSlot,
       'duration': durationSlots,
       'type': type.name,
+      'isRecurring': isRecurring,
+      if (date != null) 'date': date!.toIso8601String(),
       if (note != null && note!.isNotEmpty) 'note': note,
     };
   }
@@ -85,6 +95,16 @@ class ScheduleBlock {
     );
     final String? note = json['note'] as String?;
     final int id = json['id'] is int ? json['id'] as int : -1;
+    DateTime? parsedDate;
+    final String? dateValue = json['date'] as String? ?? json['dateString'] as String?;
+    if (dateValue != null && dateValue.isNotEmpty) {
+      try {
+        parsedDate = DateTime.parse(dateValue);
+      } catch (_) {
+        parsedDate = null;
+      }
+    }
+    final bool isRecurring = json['isRecurring'] is bool ? json['isRecurring'] as bool : false;
     return ScheduleBlock(
       id: id,
       dayIndex: dayIndex,
@@ -92,6 +112,8 @@ class ScheduleBlock {
       durationSlots: durationSlots > 0 ? durationSlots : 1,
       type: type,
       note: note,
+      date: parsedDate,
+      isRecurring: isRecurring,
     );
   }
 }
@@ -177,6 +199,7 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
   _SelectionRange? _currentSelectionRange;
   bool _rangeSelectionMoved = false;
   bool _rangeSelectionPrimed = false;
+  DateTime? _rangeSelectionSelectedDate;
   int? _pendingRangeDayIndex;
   Offset? _pendingRangeLocalOffset;
   Offset? _pendingRangeGlobalOffset;
@@ -187,7 +210,7 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
   static const List<String> _dayLabels = <String>['เสาร์', 'อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัส', 'ศุกร์'];
   static const int _scheduleStartHour = 7;
   static const int _scheduleEndHour = 21;
-  static const int _minutesPerSlot = 60;
+  static const int _minutesPerSlot = 30;
   static const double _scheduleHourWidth = 96;
   static const double _scheduleRowHeight = 72;
   static const double _dayLabelWidth = 96;
@@ -208,6 +231,40 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
           _weekStartDate.day,
         ).add(Duration(days: index)),
       );
+
+  DateTime _normalizeDate(DateTime input) => DateTime(input.year, input.month, input.day);
+
+  bool _isSameDate(DateTime a, DateTime b) =>
+      a.year == b.year && a.month == b.month && a.day == b.day;
+
+  int _dayIndexForWeekday(int weekday) => (weekday - DateTime.saturday + 7) % 7;
+
+  int _dayIndexForDate(DateTime date) => _dayIndexForWeekday(date.weekday);
+
+  int _resolvedDayIndex(ScheduleBlock block) {
+    if (block.date != null) {
+      return _dayIndexForDate(block.date!);
+    }
+    return block.dayIndex;
+  }
+
+  DateTime _sortAnchorForBlock(ScheduleBlock block) {
+    final DateTime baseDate = block.date != null
+        ? _normalizeDate(block.date!)
+        : _pseudoDateForDayIndex(_resolvedDayIndex(block));
+    return baseDate.add(Duration(minutes: block.startSlot * _minutesPerSlot));
+  }
+
+  DateTime _pseudoDateForDayIndex(int dayIndex) =>
+      DateTime(1970, 1, 1 + _clampInt(dayIndex, 0, _dayLabels.length - 1));
+
+  DateTime _displayDateForBlock(ScheduleBlock block) {
+    if (block.date != null && !block.isRecurring) {
+      return _normalizeDate(block.date!);
+    }
+    final int index = _clampInt(_resolvedDayIndex(block), 0, _dayLabels.length - 1);
+    return _currentWeekDates[index];
+  }
 
   DateTime _calculateWeekStart(DateTime anchor) {
     final DateTime normalized = DateTime(anchor.year, anchor.month, anchor.day);
@@ -240,15 +297,19 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
     return '${_dayLabels[safeIndex]} ${_formatDateLabel(date)}';
   }
 
-  DateTime _blockStartDateTime(int dayIndex, int startSlot) {
-    final int safeIndex = _clampInt(dayIndex, 0, _dayLabels.length - 1);
-    final DateTime day = _currentWeekDates[safeIndex];
-    return DateTime(day.year, day.month, day.day, _scheduleStartHour)
+  String _formatDayWithDateFromDate(DateTime date) {
+    final int index = _dayIndexForDate(date);
+    return '${_dayLabels[_clampInt(index, 0, _dayLabels.length - 1)]} ${_formatDateLabel(date)}';
+  }
+
+  DateTime _blockStartDateTime(DateTime dayDate, int startSlot) {
+    final DateTime normalized = _normalizeDate(dayDate);
+    return DateTime(normalized.year, normalized.month, normalized.day, _scheduleStartHour)
         .add(Duration(minutes: startSlot * _minutesPerSlot));
   }
 
-  DateTime _blockEndDateTime(int dayIndex, int startSlot, int durationSlots) {
-    return _blockStartDateTime(dayIndex, startSlot)
+  DateTime _blockEndDateTime(DateTime dayDate, int startSlot, int durationSlots) {
+    return _blockStartDateTime(dayDate, startSlot)
         .add(Duration(minutes: durationSlots * _minutesPerSlot));
   }
 
@@ -366,8 +427,12 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
             dayIndex: safeDay,
             startSlot: safeStart,
             durationSlots: safeDuration,
+            date: parsed.date != null ? _normalizeDate(parsed.date!) : null,
           );
-          if (_canPlaceBlock(sanitized.dayIndex, sanitized.startSlot, sanitized.durationSlots, existing: parsedBlocks)) {
+          final DateTime placementDay = sanitized.date != null
+              ? _normalizeDate(sanitized.date!)
+              : _pseudoDateForDayIndex(sanitized.dayIndex);
+          if (_canPlaceBlock(placementDay, sanitized.startSlot, sanitized.durationSlots, existing: parsedBlocks)) {
             parsedBlocks.add(sanitized);
             usedIds.add(resolvedId);
           }
@@ -411,9 +476,18 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
 
   void _sortBlocks() {
     _scheduleBlocks.sort((ScheduleBlock a, ScheduleBlock b) {
-      final int dayCompare = a.dayIndex.compareTo(b.dayIndex);
+      final DateTime anchorA = _sortAnchorForBlock(a);
+      final DateTime anchorB = _sortAnchorForBlock(b);
+      final int anchorCompare = anchorA.compareTo(anchorB);
+      if (anchorCompare != 0) {
+        return anchorCompare;
+      }
+      final int dayCompare = _resolvedDayIndex(a).compareTo(_resolvedDayIndex(b));
       if (dayCompare != 0) {
         return dayCompare;
+      }
+      if (a.isRecurring != b.isRecurring) {
+        return a.isRecurring ? 1 : -1;
       }
       return a.startSlot.compareTo(b.startSlot);
     });
@@ -513,7 +587,7 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
   }
 
   bool _canPlaceBlock(
-    int dayIndex,
+    DateTime dayDate,
     int startSlot,
     int durationSlots, {
     int? ignoreId,
@@ -522,12 +596,14 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
     if (startSlot < 0 || durationSlots <= 0 || startSlot + durationSlots > _totalSlots) {
       return false;
     }
+    final DateTime normalizedDay = _normalizeDate(dayDate);
+    final int dayIndex = _dayIndexForDate(normalizedDay);
     final List<ScheduleBlock> source = existing ?? _scheduleBlocks;
     for (final ScheduleBlock block in source) {
       if (ignoreId != null && block.id == ignoreId) {
         continue;
       }
-      if (block.dayIndex != dayIndex) {
+      if (!_blockOccursOnDate(block, normalizedDay, dayIndex)) {
         continue;
       }
       final int blockEnd = block.startSlot + block.durationSlots;
@@ -539,15 +615,28 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
     return true;
   }
 
-  int _calculateMaxDuration(int dayIndex, int startSlot, int? ignoreId) {
+  bool _blockOccursOnDate(ScheduleBlock block, DateTime dayDate, int dayIndex) {
+    if (block.isRecurring) {
+      final int recurringDay = block.date != null ? _dayIndexForDate(block.date!) : block.dayIndex;
+      return recurringDay == dayIndex;
+    }
+    if (block.date != null) {
+      return _isSameDate(_normalizeDate(block.date!), dayDate);
+    }
+    return block.dayIndex == dayIndex;
+  }
+
+  int _calculateMaxDuration(DateTime dayDate, int startSlot, int? ignoreId) {
     final int maxSlots = _totalSlots - startSlot;
     if (maxSlots <= 0) {
       return 0;
     }
+    final DateTime normalizedDay = _normalizeDate(dayDate);
+    final int dayIndex = _dayIndexForDate(normalizedDay);
     final List<ScheduleBlock> dayBlocks = _scheduleBlocks
         .where(
           (ScheduleBlock block) =>
-              block.dayIndex == dayIndex && (ignoreId == null || block.id != ignoreId),
+              (ignoreId == null || block.id != ignoreId) && _blockOccursOnDate(block, normalizedDay, dayIndex),
         )
         .toList()
       ..sort((ScheduleBlock a, ScheduleBlock b) => a.startSlot.compareTo(b.startSlot));
@@ -581,9 +670,9 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
 
   String _formatTimeLabel(int hour) => '${hour.toString().padLeft(2, '0')}:00';
 
-  String _formatSlotRange(int dayIndex, int startSlot, int durationSlots) {
-    final DateTime start = _blockStartDateTime(dayIndex, startSlot);
-    final DateTime end = _blockEndDateTime(dayIndex, startSlot, durationSlots);
+  String _formatSlotRange(DateTime dayDate, int startSlot, int durationSlots) {
+    final DateTime start = _blockStartDateTime(dayDate, startSlot);
+    final DateTime end = _blockEndDateTime(dayDate, startSlot, durationSlots);
     return '${_formatTime(start)} - ${_formatTime(end)}';
   }
 
@@ -603,22 +692,23 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
     final int normalizedTarget = _clampInt(targetSlot, 0, _totalSlots - 1);
     int start = math.min(anchorSlot, normalizedTarget);
     int end = math.max(anchorSlot, normalizedTarget);
-    if (!_canPlaceBlock(dayIndex, anchorSlot, 1)) {
+    final DateTime dayDate = _currentWeekDates[_clampInt(dayIndex, 0, _dayLabels.length - 1)];
+    if (!_canPlaceBlock(dayDate, anchorSlot, 1)) {
       return _SelectionRange(startSlot: anchorSlot, durationSlots: 1);
     }
     if (normalizedTarget >= anchorSlot) {
-      while (end > anchorSlot && !_canPlaceBlock(dayIndex, start, end - start + 1)) {
+      while (end > anchorSlot && !_canPlaceBlock(dayDate, start, end - start + 1)) {
         end -= 1;
       }
-      if (!_canPlaceBlock(dayIndex, start, end - start + 1)) {
+      if (!_canPlaceBlock(dayDate, start, end - start + 1)) {
         start = anchorSlot;
         end = anchorSlot;
       }
     } else {
-      while (start < anchorSlot && !_canPlaceBlock(dayIndex, start, end - start + 1)) {
+      while (start < anchorSlot && !_canPlaceBlock(dayDate, start, end - start + 1)) {
         start += 1;
       }
-      if (!_canPlaceBlock(dayIndex, start, end - start + 1)) {
+      if (!_canPlaceBlock(dayDate, start, end - start + 1)) {
         start = anchorSlot;
         end = anchorSlot;
       }
@@ -681,7 +771,8 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
       return;
     }
     final int slot = _slotFromDx(localPosition.dx);
-    if (!_canPlaceBlock(dayIndex, slot, 1)) {
+    final DateTime dayDate = _currentWeekDates[_clampInt(dayIndex, 0, _dayLabels.length - 1)];
+    if (!_canPlaceBlock(dayDate, slot, 1)) {
       _cancelRangeSelection();
       return;
     }
@@ -693,6 +784,7 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
       _rangeSelectionStartGlobalDy = globalPosition.dy;
       _currentSelectionRange = _SelectionRange(startSlot: slot, durationSlots: 1);
       _rangeSelectionMoved = false;
+      _rangeSelectionSelectedDate = dayDate;
     });
     _clearPendingRangeSelection();
   }
@@ -711,6 +803,7 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
     final int dayOffset = verticalDelta ~/ _scheduleRowHeight;
     final int targetDay =
         _clampInt(_rangeSelectionStartDayIndex! + dayOffset, 0, _dayLabels.length - 1);
+    final DateTime targetDayDate = _currentWeekDates[targetDay];
     final _SelectionRange resolved = _resolveSelectionRange(targetDay, anchor, targetSlot);
     final bool moved = targetSlot != anchor || targetDay != _rangeSelectionDayIndex;
     if (_currentSelectionRange?.startSlot != resolved.startSlot ||
@@ -719,15 +812,18 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
         _currentSelectionRange = resolved;
         _rangeSelectionDayIndex = targetDay;
         _rangeSelectionMoved = _rangeSelectionMoved || moved;
+        _rangeSelectionSelectedDate = targetDayDate;
       });
     } else if (moved && !_rangeSelectionMoved) {
       setState(() {
         _rangeSelectionDayIndex = targetDay;
         _rangeSelectionMoved = true;
+        _rangeSelectionSelectedDate = targetDayDate;
       });
     } else if (_rangeSelectionDayIndex != targetDay) {
       setState(() {
         _rangeSelectionDayIndex = targetDay;
+        _rangeSelectionSelectedDate = targetDayDate;
       });
     }
   }
@@ -744,10 +840,11 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
 
   final _SelectionRange? range = _currentSelectionRange;
   final int? dayIndex = _rangeSelectionDayIndex;
+  final DateTime? selectedDate = _rangeSelectionSelectedDate;
   final bool hasMoved = _rangeSelectionMoved;
 
   // ถ้ายกเลิกหรือไม่มีค่าช่วงเวลา
-  if (cancelled || range == null || dayIndex == null) {
+  if (cancelled || range == null || dayIndex == null || selectedDate == null) {
     _cancelRangeSelection();
     return;
   }
@@ -770,13 +867,14 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
     _rangeSelectionStartGlobalDy = null;
     _currentSelectionRange = null;
     _rangeSelectionMoved = false;
+    _rangeSelectionSelectedDate = null;
   });
 
   _releaseScheduleHold();
   _clearPendingRangeSelection();
 
   // ✅ ตรวจว่าเวลาซ้ำไหม
-  if (!_canPlaceBlock(dayIndex, range.startSlot, range.durationSlots)) {
+  if (!_canPlaceBlock(selectedDate, range.startSlot, range.durationSlots)) {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('ช่วงเวลานี้ถูกใช้ไปแล้ว')),
     );
@@ -794,6 +892,7 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
   final _BlockDetails? detailsResult = await _collectBlockDetails(
     type: type,
     dayIndex: dayIndex,
+    dayDate: selectedDate,
     startSlot: range.startSlot,
     initialDuration: range.durationSlots,
   );
@@ -801,7 +900,7 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
   if (!mounted || detailsResult == null) return;
 
   // ✅ ตรวจซ้ำอีกทีว่าช่วงเวลาว่างไหม
-  if (!_canPlaceBlock(detailsResult.dayIndex, range.startSlot, detailsResult.durationSlots)) {
+  if (!_canPlaceBlock(detailsResult.dayDate, range.startSlot, detailsResult.durationSlots)) {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('ช่วงเวลานี้ถูกใช้ไปแล้ว')),
     );
@@ -811,11 +910,13 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
   // ✅ สร้างบล็อกใหม่
   final ScheduleBlock newBlock = ScheduleBlock(
     id: _nextBlockId++,
-    dayIndex: detailsResult.dayIndex,
+    dayIndex: _dayIndexForDate(detailsResult.dayDate),
     startSlot: range.startSlot,
     durationSlots: detailsResult.durationSlots,
     type: type,
     note: type == ScheduleBlockType.teaching ? detailsResult.note : null,
+    date: _normalizeDate(detailsResult.dayDate),
+    isRecurring: detailsResult.isRecurring,
   );
 
   setState(() {
@@ -831,6 +932,7 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
       _releaseScheduleHold();
       _clearPendingRangeSelection();
       _rangeSelectionMoved = false;
+      _rangeSelectionSelectedDate = null;
       return;
     }
     setState(() {
@@ -841,6 +943,7 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
       _rangeSelectionStartGlobalDy = null;
       _currentSelectionRange = null;
       _rangeSelectionMoved = false;
+      _rangeSelectionSelectedDate = null;
     });
     _releaseScheduleHold();
     _clearPendingRangeSelection();
@@ -848,13 +951,14 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
 
   Future<void> _handleGridTap(int dayIndex, double dx) async {
     final int slot = _slotFromDx(dx);
-    if (!_canPlaceBlock(dayIndex, slot, 1)) {
+    final DateTime dayDate = _currentWeekDates[_clampInt(dayIndex, 0, _dayLabels.length - 1)];
+    if (!_canPlaceBlock(dayDate, slot, 1)) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('ช่วงเวลานี้ถูกใช้ไปแล้ว')),
       );
       return;
     }
-    final int maxDuration = _calculateMaxDuration(dayIndex, slot, null);
+    final int maxDuration = _calculateMaxDuration(dayDate, slot, null);
     if (maxDuration <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('ช่วงเวลานี้ถูกใช้ไปแล้ว')),
@@ -871,6 +975,7 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
     final _BlockDetails? details = await _collectBlockDetails(
       type: type,
       dayIndex: dayIndex,
+      dayDate: dayDate,
       startSlot: slot,
     );
     if (!mounted) {
@@ -879,7 +984,7 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
     if (details == null) {
       return;
     }
-    if (!_canPlaceBlock(details.dayIndex, slot, details.durationSlots)) {
+    if (!_canPlaceBlock(details.dayDate, slot, details.durationSlots)) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('ช่วงเวลานี้ถูกใช้ไปแล้ว')),
       );
@@ -887,11 +992,13 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
     }
     final ScheduleBlock newBlock = ScheduleBlock(
       id: _nextBlockId++,
-      dayIndex: details.dayIndex,
+      dayIndex: _dayIndexForDate(details.dayDate),
       startSlot: slot,
       durationSlots: details.durationSlots,
       type: type,
       note: type == ScheduleBlockType.teaching ? details.note : null,
+      date: _normalizeDate(details.dayDate),
+      isRecurring: details.isRecurring,
     );
     setState(() {
       _scheduleBlocks = <ScheduleBlock>[..._scheduleBlocks, newBlock];
@@ -1000,26 +1107,31 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
   Future<_BlockDetails?> _collectBlockDetails({
     required ScheduleBlockType type,
     required int dayIndex,
+    required DateTime dayDate,
     required int startSlot,
     int? initialDuration,
     String? initialNote,
     int? ignoreBlockId,
+    bool initialRecurring = false,
   }) async {
+    final List<DateTime> weekDates = _currentWeekDates;
     final List<int> maxDurationPerDay = List<int>.generate(
-      _dayLabels.length,
-      (int index) => _calculateMaxDuration(index, startSlot, ignoreBlockId),
+      weekDates.length,
+      (int index) => _calculateMaxDuration(weekDates[index], startSlot, ignoreBlockId),
     );
     if (maxDurationPerDay.every((int value) => value <= 0)) {
       return null;
     }
 
-    int selectedDay = dayIndex;
+    int selectedDay = _clampInt(dayIndex, 0, weekDates.length - 1);
+    DateTime selectedDate = _normalizeDate(dayDate);
     if (maxDurationPerDay[selectedDay] <= 0) {
       final int fallbackIndex = maxDurationPerDay.indexWhere((int value) => value > 0);
       if (fallbackIndex == -1) {
         return null;
       }
       selectedDay = fallbackIndex;
+      selectedDate = weekDates[fallbackIndex];
     }
 
     int maxForSelectedDay = math.max(1, maxDurationPerDay[selectedDay]);
@@ -1029,6 +1141,7 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
             type == ScheduleBlockType.teaching ? math.min(2, maxForSelectedDay) : 1,
             maxForSelectedDay,
           );
+    bool isRecurring = initialRecurring;
     final TextEditingController noteController = TextEditingController(text: initialNote ?? '');
 
     final _BlockDetails? result = await showModalBottomSheet<_BlockDetails>(
@@ -1072,7 +1185,7 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        '${_formatDayWithDate(selectedDay)} ${_formatSlotRange(selectedDay, startSlot, duration)}',
+                        '${_formatDayWithDateFromDate(selectedDate)} ${_formatSlotRange(selectedDate, startSlot, duration)}',
                         style: const TextStyle(fontWeight: FontWeight.w600),
                       ),
                       const SizedBox(height: 16),
@@ -1080,15 +1193,16 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
                         value: selectedDay,
                         decoration: const InputDecoration(labelText: 'วัน'),
                         items: List<DropdownMenuItem<int>>.generate(
-                          _dayLabels.length,
+                          weekDates.length,
                           (int index) {
                             final bool enabled = maxDurationPerDay[index] > 0;
+                            final DateTime optionDate = weekDates[index];
                             return DropdownMenuItem<int>(
                               value: index,
                               enabled: enabled,
                               child: Row(
                                 children: <Widget>[
-                                  Expanded(child: Text(_formatDayWithDate(index))),
+                                  Expanded(child: Text(_formatDayWithDateFromDate(optionDate))),
                                   if (!enabled)
                                     Text(
                                       'เต็ม',
@@ -1105,6 +1219,7 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
                           }
                           setState(() {
                             selectedDay = value;
+                            selectedDate = weekDates[value];
                             maxForSelectedDay = math.max(1, maxDurationPerDay[value]);
                             duration = _clampInt(duration, 1, maxForSelectedDay);
                           });
@@ -1122,7 +1237,15 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
                           ),
                           maxLines: null,
                         ),
-                        const SizedBox(height: 16),
+                        const SizedBox(height: 12),
+                        SwitchListTile.adaptive(
+                          value: isRecurring,
+                          onChanged: (bool value) => setState(() => isRecurring = value),
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('สอนประจำทุกสัปดาห์'),
+                          subtitle: const Text('ทำซ้ำในวันและเวลาเดียวกันของทุกสัปดาห์'),
+                        ),
+                        const SizedBox(height: 12),
                       ],
                       Row(
                         children: <Widget>[
@@ -1168,7 +1291,7 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
                           const Spacer(),
                           ElevatedButton(
                             onPressed: () {
-                              if (!_canPlaceBlock(selectedDay, startSlot, duration, ignoreId: ignoreBlockId)) {
+                              if (!_canPlaceBlock(selectedDate, startSlot, duration, ignoreId: ignoreBlockId)) {
                                 if (!mounted) {
                                   return;
                                 }
@@ -1181,12 +1304,14 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
                                 context,
                                 _BlockDetails(
                                   dayIndex: selectedDay,
+                                  dayDate: selectedDate,
                                   durationSlots: duration,
                                   note: isTeaching
                                       ? (noteController.text.trim().isEmpty
                                           ? null
                                           : noteController.text.trim())
                                       : null,
+                                  isRecurring: isTeaching ? isRecurring : false,
                                 ),
                               );
                             },
@@ -1264,9 +1389,11 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
     if (horizontalSteps == 0 && verticalSteps == 0) {
       return;
     }
-    final int newDay = _clampInt(block.dayIndex + verticalSteps, 0, _dayLabels.length - 1);
+    final int baseDayIndex = _resolvedDayIndex(block);
+    final int newDay = _clampInt(baseDayIndex + verticalSteps, 0, _dayLabels.length - 1);
+    final DateTime newDayDate = _currentWeekDates[newDay];
     final int newStart = _clampInt(block.startSlot + horizontalSteps, 0, _totalSlots - block.durationSlots);
-    if (!_canPlaceBlock(newDay, newStart, block.durationSlots, ignoreId: block.id)) {
+    if (!_canPlaceBlock(newDayDate, newStart, block.durationSlots, ignoreId: block.id)) {
       return;
     }
 
@@ -1274,7 +1401,11 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
       _scheduleBlocks = _scheduleBlocks
           .map(
             (ScheduleBlock current) => current.id == block.id
-                ? current.copyWith(dayIndex: newDay, startSlot: newStart)
+                ? current.copyWith(
+                    dayIndex: newDay,
+                    startSlot: newStart,
+                    date: _normalizeDate(newDayDate),
+                  )
                 : current,
           )
           .toList();
@@ -1298,6 +1429,7 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
   }
 
   Future<void> _onBlockTapped(ScheduleBlock block) async {
+    final DateTime blockDisplayDate = _displayDateForBlock(block);
     final _BlockAction? action = await showModalBottomSheet<_BlockAction>(
       context: context,
       shape: const RoundedRectangleBorder(
@@ -1324,7 +1456,7 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
                 ),
                 const SizedBox(height: 16),
                 Text(
-                  '${_formatDayWithDate(block.dayIndex)} ${_formatSlotRange(block.dayIndex, block.startSlot, block.durationSlots)}',
+                  '${_formatDayWithDateFromDate(blockDisplayDate)} ${_formatSlotRange(blockDisplayDate, block.startSlot, block.durationSlots)}',
                   style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 8),
@@ -1371,17 +1503,19 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
       case _BlockAction.edit:
         final _BlockDetails? details = await _collectBlockDetails(
           type: block.type,
-          dayIndex: block.dayIndex,
+          dayIndex: _dayIndexForDate(blockDisplayDate),
+          dayDate: blockDisplayDate,
           startSlot: block.startSlot,
           initialDuration: block.durationSlots,
           initialNote: block.note,
           ignoreBlockId: block.id,
+          initialRecurring: block.isRecurring,
         );
         if (!mounted) {
           return;
         }
         if (details != null) {
-          if (!_canPlaceBlock(details.dayIndex, block.startSlot, details.durationSlots, ignoreId: block.id)) {
+          if (!_canPlaceBlock(details.dayDate, block.startSlot, details.durationSlots, ignoreId: block.id)) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('ช่วงเวลานี้ถูกใช้ไปแล้ว')),
             );
@@ -1392,10 +1526,12 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
                 .map(
                   (ScheduleBlock current) => current.id == block.id
                       ? current.copyWith(
-                          dayIndex: details.dayIndex,
+                          dayIndex: _dayIndexForDate(details.dayDate),
                           startSlot: block.startSlot,
                           durationSlots: details.durationSlots,
                           note: block.type == ScheduleBlockType.teaching ? details.note : null,
+                          date: _normalizeDate(details.dayDate),
+                          isRecurring: block.type == ScheduleBlockType.teaching ? details.isRecurring : false,
                         )
                       : current,
                 )
@@ -1410,7 +1546,11 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
             _scheduleBlocks = _scheduleBlocks
                 .map(
                   (ScheduleBlock current) => current.id == block.id
-                      ? current.copyWith(type: ScheduleBlockType.unavailable, clearNote: true)
+                      ? current.copyWith(
+                          type: ScheduleBlockType.unavailable,
+                          clearNote: true,
+                          isRecurring: false,
+                        )
                       : current,
                 )
                 .toList();
@@ -1418,7 +1558,8 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
         } else {
           final _BlockDetails? details = await _collectBlockDetails(
             type: ScheduleBlockType.teaching,
-            dayIndex: block.dayIndex,
+            dayIndex: _dayIndexForDate(blockDisplayDate),
+            dayDate: blockDisplayDate,
             startSlot: block.startSlot,
             initialDuration: block.durationSlots,
             ignoreBlockId: block.id,
@@ -1427,7 +1568,7 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
             return;
           }
           if (details != null) {
-            if (!_canPlaceBlock(details.dayIndex, block.startSlot, details.durationSlots, ignoreId: block.id)) {
+            if (!_canPlaceBlock(details.dayDate, block.startSlot, details.durationSlots, ignoreId: block.id)) {
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(content: Text('ช่วงเวลานี้ถูกใช้ไปแล้ว')),
               );
@@ -1438,16 +1579,18 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
                   .map(
                     (ScheduleBlock current) => current.id == block.id
                         ? current.copyWith(
-                            dayIndex: details.dayIndex,
+                            dayIndex: _dayIndexForDate(details.dayDate),
                             startSlot: block.startSlot,
                             type: ScheduleBlockType.teaching,
                             durationSlots: details.durationSlots,
                             note: details.note,
+                            date: _normalizeDate(details.dayDate),
+                            isRecurring: details.isRecurring,
                           )
                         : current,
                   )
                   .toList();
-              _sortBlocks();
+            _sortBlocks();
             });
           }
         }
@@ -2096,7 +2239,10 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
     final int safeDayIndex = _clampInt(dayIndex, 0, _dayLabels.length - 1);
     final DateTime dayDate = _currentWeekDates[safeDayIndex];
     final List<ScheduleBlock> dayBlocks = _scheduleBlocks
-        .where((ScheduleBlock block) => block.dayIndex == dayIndex)
+        .where(
+          (ScheduleBlock block) =>
+              _blockOccursOnDate(block, _normalizeDate(dayDate), safeDayIndex),
+        )
         .toList();
     dayBlocks.sort((ScheduleBlock a, ScheduleBlock b) => a.startSlot.compareTo(b.startSlot));
     return SizedBox(
@@ -2160,7 +2306,7 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
                         ),
                       ),
                     ),
-                  for (final ScheduleBlock block in dayBlocks) _buildScheduleBlock(block),
+                  for (final ScheduleBlock block in dayBlocks) _buildScheduleBlock(block, dayDate),
                 ],
               ),
             ),
@@ -2170,7 +2316,7 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
     );
   }
 
-  Widget _buildScheduleBlock(ScheduleBlock block) {
+  Widget _buildScheduleBlock(ScheduleBlock block, DateTime dayDate) {
     final double left = block.startSlot * _slotWidth;
     final double width = block.durationSlots * _slotWidth;
     final bool isTeaching = block.type == ScheduleBlockType.teaching;
@@ -2180,6 +2326,7 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
     final String label = isTeaching
         ? (block.note != null && block.note!.isNotEmpty ? block.note! : 'สอน')
         : 'ไม่ว่าง';
+    final bool isRecurring = block.isRecurring && isTeaching;
     final bool isActive = _draggingBlockId == block.id;
     final bool isLifted = isActive && _isDragPrimed;
     final double topInset = isLifted ? 0 : 6;
@@ -2202,7 +2349,7 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
         onPanEnd: (_) => _endDraggingBlock(),
         child: Tooltip(
           message:
-              '${_formatDayWithDate(block.dayIndex)} ${_formatSlotRange(block.dayIndex, block.startSlot, block.durationSlots)}\n$label',
+              '${_formatDayWithDateFromDate(dayDate)} ${_formatSlotRange(dayDate, block.startSlot, block.durationSlots)}\n$label',
           waitDuration: const Duration(milliseconds: 400),
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 150),
@@ -2226,7 +2373,7 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
                 Text(
-                  _formatSlotRange(block.dayIndex, block.startSlot, block.durationSlots),
+                  _formatSlotRange(dayDate, block.startSlot, block.durationSlots),
                   style: TextStyle(
                     fontSize: 11,
                     color: textColor.withOpacity(0.85),
@@ -2234,6 +2381,27 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
                   ),
                 ),
                 const SizedBox(height: 4),
+                if (isRecurring)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 2),
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: borderColor.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        child: Text(
+                          'ประจำ',
+                          style: TextStyle(
+                            color: borderColor,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
                 Expanded(
                   child: Text(
                     label,
@@ -2409,13 +2577,17 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
 class _BlockDetails {
   const _BlockDetails({
     required this.dayIndex,
+    required this.dayDate,
     required this.durationSlots,
     this.note,
+    this.isRecurring = false,
   });
 
   final int dayIndex;
+  final DateTime dayDate;
   final int durationSlots;
   final String? note;
+  final bool isRecurring;
 }
 
 class _SelectionRange {
