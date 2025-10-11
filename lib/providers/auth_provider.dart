@@ -216,6 +216,76 @@ class Tutor {
       teachingSchedule: teachingSchedule ?? this.teachingSchedule,
     );
   }
+
+  Map<String, dynamic> toJson() {
+    return <String, dynamic>{
+      'firstName': firstName,
+      'lastName': lastName,
+      'currentActivity': currentActivity,
+      'nickname': nickname,
+      'phoneNumber': phoneNumber,
+      'lineId': lineId,
+      'email': email,
+      'password': password,
+      'status': status,
+      'travelDuration': travelDuration,
+      'profileImageBase64': profileImageBase64,
+      'subjects': subjects,
+      'teachingSchedule': teachingSchedule,
+    };
+  }
+
+  static Tutor? fromJson(Map<String, dynamic> json) {
+    String? readString(String key) {
+      final Object? value = json[key];
+      if (value is String) {
+        return value;
+      }
+      return null;
+    }
+
+    List<String> readStringList(String key) {
+      final Object? value = json[key];
+      if (value is List) {
+        return value
+            .map((Object? item) => item?.toString().trim() ?? '')
+            .where((String item) => item.isNotEmpty)
+            .toList();
+      }
+      return <String>[];
+    }
+
+    final String? nicknameValue = readString('nickname');
+    final String? lineIdValue = readString('lineId');
+    final String? emailValue = readString('email');
+    final String? passwordValue = readString('password');
+
+    if (nicknameValue == null || lineIdValue == null || emailValue == null || passwordValue == null) {
+      return null;
+    }
+
+    final String statusValue = (readString('status') ?? '').trim().isEmpty
+        ? Tutor.defaultStatus
+        : readString('status')!.trim();
+    final String travelDurationValue = (readString('travelDuration') ?? '').trim();
+    final String? scheduleValue = readString('teachingSchedule');
+
+    return Tutor(
+      firstName: readString('firstName') ?? '',
+      lastName: readString('lastName') ?? '',
+      currentActivity: readString('currentActivity') ?? '',
+      nickname: nicknameValue,
+      phoneNumber: readString('phoneNumber') ?? '',
+      lineId: lineIdValue,
+      email: emailValue,
+      password: passwordValue,
+      status: statusValue.isEmpty ? Tutor.defaultStatus : statusValue,
+      travelDuration: travelDurationValue,
+      profileImageBase64: readString('profileImageBase64'),
+      subjects: readStringList('subjects'),
+      teachingSchedule: scheduleValue == null || scheduleValue.trim().isEmpty ? null : scheduleValue.trim(),
+    );
+  }
 }
 
 /// ตัวจัดการสถานะการยืนยันตัวตน / Authentication state manager
@@ -310,6 +380,11 @@ class AuthProvider extends ChangeNotifier {
               .map<Tutor?>((String line) => Tutor.fromStorageLine(line))
               .whereType<Tutor>(),
         );
+      if (_tutors.isEmpty) {
+        await _restoreFromBackupIfAvailable();
+      } else {
+        await _writeBackupSafely();
+      }
     } catch (e) {
       debugPrint('Failed to load tutors: $e');
     } finally {
@@ -319,13 +394,17 @@ class AuthProvider extends ChangeNotifier {
   }
 
   /// บันทึกรายชื่อติวเตอร์ลงไฟล์ / Persist tutors into text file
-  Future<void> _saveTutors() async {
+  Future<void> _saveTutors({bool updateBackup = true}) async {
     try {
       final File file = await _dataFile;
       final String content = _generateFileContent(_tutors, file.path);
       await file.writeAsString(content);
     } catch (e) {
       debugPrint('Failed to save tutors: $e');
+      return;
+    }
+    if (updateBackup) {
+      await _writeBackupSafely();
     }
   }
 
@@ -482,5 +561,99 @@ class AuthProvider extends ChangeNotifier {
     await _saveTutors();
     notifyListeners();
     return true;
+  }
+
+  Future<void> _restoreFromBackupIfAvailable() async {
+    final File? backupFile = await _resolveBackupFile(createIfMissing: false);
+    if (backupFile == null || !await backupFile.exists()) {
+      return;
+    }
+    try {
+      final String raw = await backupFile.readAsString();
+      if (raw.trim().isEmpty) {
+        return;
+      }
+      final Object? decoded = jsonDecode(raw);
+      if (decoded is! List) {
+        return;
+      }
+      final List<Tutor> restoredTutors = decoded
+          .map((Object? item) => item is Map<String, dynamic> ? Tutor.fromJson(item) : null)
+          .whereType<Tutor>()
+          .toList();
+      if (restoredTutors.isEmpty) {
+        return;
+      }
+      _tutors
+        ..clear()
+        ..addAll(restoredTutors);
+      await _saveTutors(updateBackup: false);
+      await _writeBackupSafely();
+    } catch (e) {
+      debugPrint('Failed to restore tutors from backup: $e');
+    }
+  }
+
+  Future<File?> _resolveBackupFile({required bool createIfMissing}) async {
+    if (kIsWeb) {
+      return null;
+    }
+    try {
+      Directory? baseDir;
+      if (Platform.isAndroid) {
+        final List<Directory>? directories =
+            await getExternalStorageDirectories(type: StorageDirectory.documents);
+        if (directories != null && directories.isNotEmpty) {
+          baseDir = directories.firstWhere(
+            (Directory dir) => dir.path.isNotEmpty,
+            orElse: () => directories.first,
+          );
+        }
+        baseDir ??= await getDownloadsDirectory();
+      } else if (Platform.isIOS) {
+        try {
+          baseDir = await getLibraryDirectory();
+        } catch (_) {
+          baseDir = await getApplicationDocumentsDirectory();
+        }
+      } else if (Platform.isMacOS || Platform.isLinux || Platform.isWindows) {
+        baseDir = await getDownloadsDirectory();
+        baseDir ??= await getApplicationDocumentsDirectory();
+      } else {
+        baseDir = await getApplicationDocumentsDirectory();
+      }
+      if (baseDir == null) {
+        return null;
+      }
+      final String separator = Platform.pathSeparator;
+      final Directory targetDir = Directory('${baseDir.path}${separator}Bankrulek');
+      if (createIfMissing) {
+        if (!await targetDir.exists()) {
+          await targetDir.create(recursive: true);
+        }
+      } else {
+        if (!await targetDir.exists()) {
+          return null;
+        }
+      }
+      return File('${targetDir.path}${separator}tutors_backup.json');
+    } catch (e) {
+      debugPrint('Unable to resolve backup file: $e');
+      return null;
+    }
+  }
+
+  Future<void> _writeBackupSafely() async {
+    try {
+      final File? backupFile = await _resolveBackupFile(createIfMissing: true);
+      if (backupFile == null) {
+        return;
+      }
+      final List<Map<String, dynamic>> payload =
+          _tutors.map((Tutor tutor) => tutor.toJson()).toList(growable: false);
+      await backupFile.writeAsString(jsonEncode(payload));
+    } catch (e) {
+      debugPrint('Failed to write tutors backup: $e');
+    }
   }
 }
