@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
@@ -166,6 +168,18 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
   double _dragAccumulatedDx = 0;
   double _dragAccumulatedDy = 0;
   bool _isDragPrimed = false;
+  final GlobalKey _scheduleRowsKey = GlobalKey();
+  Timer? _selectionTimer;
+  bool _isSelectingRange = false;
+  int? _selectionStartDayIndex;
+  int? _selectionStartSlot;
+  int? _selectionCurrentDayIndex;
+  int? _selectionCurrentSlot;
+  int? _pendingSelectionDayIndex;
+  int? _pendingSelectionSlot;
+  Offset? _pendingSelectionLocalPosition;
+  bool _shouldIgnoreNextTapUp = false;
+  bool _isGridScrollLocked = false;
 
   static const List<String> _dayLabels = <String>['เสาร์', 'อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัส', 'ศุกร์'];
   static const int _scheduleStartHour = 7;
@@ -179,8 +193,11 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
 
   double get _slotWidth => _scheduleHourWidth / 2;
 
+  double get _gridWidth => (_scheduleEndHour - _scheduleStartHour) * _scheduleHourWidth;
+
   @override
   void dispose() {
+    _selectionTimer?.cancel();
     _fullNameController.dispose();
     _nicknameController.dispose();
     _lineIdController.dispose();
@@ -413,6 +430,10 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
   }
 
   Future<void> _handleGridTap(int dayIndex, double dx) async {
+    if (_shouldIgnoreNextTapUp) {
+      _shouldIgnoreNextTapUp = false;
+      return;
+    }
     final double adjustedDx = dx.clamp(0, double.infinity);
     final int slot = _clampInt((adjustedDx / _slotWidth).floor(), 0, _totalSlots - 1);
     if (!_canPlaceBlock(dayIndex, slot, 1)) {
@@ -454,6 +475,271 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
       _legacyScheduleNote = null;
       _sortBlocks();
     });
+  }
+
+  void _handleGridPointerDown(PointerDownEvent event) {
+    _cancelSelectionTimer();
+    final Offset? localPosition = _resolveLocalPosition(event.position);
+    if (localPosition == null) {
+      _resetPendingSelection();
+      return;
+    }
+    final _GridLocation? location = _resolveGridLocation(localPosition);
+    if (location == null) {
+      _resetPendingSelection();
+      return;
+    }
+    if (_findBlockAt(location.dayIndex, location.slotIndex) != null) {
+      _resetPendingSelection();
+      return;
+    }
+    _shouldIgnoreNextTapUp = false;
+    _pendingSelectionDayIndex = location.dayIndex;
+    _pendingSelectionSlot = location.slotIndex;
+    _pendingSelectionLocalPosition = localPosition;
+    _selectionCurrentDayIndex = location.dayIndex;
+    _selectionCurrentSlot = location.slotIndex;
+    _selectionTimer = Timer(const Duration(seconds: 2), () {
+      if (!mounted || _pendingSelectionDayIndex == null || _pendingSelectionSlot == null) {
+        return;
+      }
+      setState(() {
+        _isSelectingRange = true;
+        _selectionStartDayIndex = _pendingSelectionDayIndex;
+        _selectionStartSlot = _pendingSelectionSlot;
+        _selectionCurrentDayIndex = _selectionCurrentDayIndex ?? _pendingSelectionDayIndex;
+        _selectionCurrentSlot = _selectionCurrentSlot ?? _pendingSelectionSlot;
+        _isGridScrollLocked = true;
+      });
+    });
+  }
+
+  void _handleGridPointerMove(PointerMoveEvent event) {
+    final Offset? localPosition = _resolveLocalPosition(event.position);
+    if (localPosition == null) {
+      return;
+    }
+    final _GridLocation? location = _resolveGridLocation(localPosition);
+    if (location == null) {
+      return;
+    }
+    if (_selectionTimer != null && !_isSelectingRange && _pendingSelectionLocalPosition != null) {
+      if ((localPosition - _pendingSelectionLocalPosition!).distance > 18) {
+        _cancelSelectionTimer();
+        _resetPendingSelection();
+        return;
+      }
+    }
+    _selectionCurrentDayIndex = location.dayIndex;
+    _selectionCurrentSlot = location.slotIndex;
+    if (_isSelectingRange) {
+      setState(() {});
+    }
+  }
+
+  void _handleGridPointerUp(PointerUpEvent event) {
+    final _SelectionRange? range = _buildSelectionRange(ignoreActiveFlag: true);
+    final bool hadSelection = _isSelectingRange && range != null && range.durationSlots > 0;
+    if (hadSelection) {
+      _shouldIgnoreNextTapUp = true;
+    }
+    final bool shouldUpdate = _isSelectingRange;
+    _cancelSelectionTimer();
+    _resetSelectionState(updateState: shouldUpdate);
+    if (hadSelection && range != null) {
+      unawaited(_finalizeSelectionRange(range));
+    } else {
+      _shouldIgnoreNextTapUp = false;
+    }
+  }
+
+  void _handleGridPointerCancel(PointerCancelEvent event) {
+    final bool shouldUpdate = _isSelectingRange;
+    _cancelSelectionTimer();
+    _resetSelectionState(updateState: shouldUpdate);
+    _shouldIgnoreNextTapUp = false;
+  }
+
+  void _cancelSelectionTimer() {
+    _selectionTimer?.cancel();
+    _selectionTimer = null;
+  }
+
+  void _resetPendingSelection() {
+    _pendingSelectionDayIndex = null;
+    _pendingSelectionSlot = null;
+    _pendingSelectionLocalPosition = null;
+    _selectionCurrentDayIndex = null;
+    _selectionCurrentSlot = null;
+  }
+
+  void _resetSelectionState({bool updateState = false}) {
+    if (updateState) {
+      setState(() {
+        _isSelectingRange = false;
+        _selectionStartDayIndex = null;
+        _selectionStartSlot = null;
+        _selectionCurrentDayIndex = null;
+        _selectionCurrentSlot = null;
+        _isGridScrollLocked = false;
+      });
+    } else {
+      _isSelectingRange = false;
+      _selectionStartDayIndex = null;
+      _selectionStartSlot = null;
+      _selectionCurrentDayIndex = null;
+      _selectionCurrentSlot = null;
+      _isGridScrollLocked = false;
+    }
+    _resetPendingSelection();
+  }
+
+  Offset? _resolveLocalPosition(Offset globalPosition) {
+    final RenderBox? box = _scheduleRowsKey.currentContext?.findRenderObject() as RenderBox?;
+    if (box == null) {
+      return null;
+    }
+    return box.globalToLocal(globalPosition);
+  }
+
+  _GridLocation? _resolveGridLocation(Offset localPosition) {
+    if (localPosition.dy < 0) {
+      return null;
+    }
+    final double totalHeight = _scheduleRowHeight * _dayLabels.length;
+    if (localPosition.dy >= totalHeight) {
+      return null;
+    }
+    final int dayIndex = _clampInt((localPosition.dy / _scheduleRowHeight).floor(), 0, _dayLabels.length - 1);
+    final double gridX = localPosition.dx - _dayLabelWidth;
+    if (gridX < 0 || gridX > _gridWidth) {
+      return null;
+    }
+    final double clampedGridX = gridX.clamp(0, math.max(0, _gridWidth - 0.01));
+    final int slotIndex = _clampInt((clampedGridX / _slotWidth).floor(), 0, _totalSlots - 1);
+    return _GridLocation(dayIndex: dayIndex, slotIndex: slotIndex);
+  }
+
+  ScheduleBlock? _findBlockAt(int dayIndex, int slotIndex) {
+    for (final ScheduleBlock block in _scheduleBlocks) {
+      if (block.dayIndex == dayIndex &&
+          slotIndex >= block.startSlot &&
+          slotIndex < block.startSlot + block.durationSlots) {
+        return block;
+      }
+    }
+    return null;
+  }
+
+  _SelectionRange? _buildSelectionRange({bool ignoreActiveFlag = false}) {
+    if ((!_isSelectingRange && !ignoreActiveFlag) ||
+        _selectionStartDayIndex == null ||
+        _selectionStartSlot == null ||
+        _selectionCurrentDayIndex == null ||
+        _selectionCurrentSlot == null) {
+      return null;
+    }
+    final int startDay = math.min(_selectionStartDayIndex!, _selectionCurrentDayIndex!);
+    final int endDay = math.max(_selectionStartDayIndex!, _selectionCurrentDayIndex!);
+    final int startSlot = math.min(_selectionStartSlot!, _selectionCurrentSlot!);
+    final int endSlotExclusive = math.min(
+      _totalSlots,
+      math.max(_selectionStartSlot!, _selectionCurrentSlot!) + 1,
+    );
+    return _SelectionRange(
+      startDayIndex: startDay,
+      endDayIndex: endDay,
+      startSlot: startSlot,
+      endSlotExclusive: endSlotExclusive,
+    );
+  }
+
+  Future<void> _finalizeSelectionRange(_SelectionRange range) async {
+    if (range.durationSlots <= 0) {
+      _shouldIgnoreNextTapUp = false;
+      return;
+    }
+    final List<_SelectionSegment> segments = range.toSegments();
+    if (segments.isEmpty) {
+      _shouldIgnoreNextTapUp = false;
+      return;
+    }
+    final bool canPlaceInitial = segments.every(
+      (_SelectionSegment segment) =>
+          _canPlaceBlock(segment.dayIndex, segment.startSlot, segment.durationSlots),
+    );
+    if (!canPlaceInitial) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('ช่วงเวลาที่เลือกซ้อนทับกับบล็อคที่มีอยู่แล้ว')),
+        );
+      }
+      _shouldIgnoreNextTapUp = false;
+      return;
+    }
+
+    final ScheduleBlockType? type = await _showBlockTypeChooser();
+    if (type == null) {
+      _shouldIgnoreNextTapUp = false;
+      return;
+    }
+
+    int resolvedDuration = range.durationSlots;
+    String? note;
+    if (type == ScheduleBlockType.teaching) {
+      final _BlockDetails? details = await _collectBlockDetails(
+        type: ScheduleBlockType.teaching,
+        dayIndex: segments.first.dayIndex,
+        startSlot: segments.first.startSlot,
+        maxDurationSlots: range.durationSlots,
+        initialDuration: range.durationSlots,
+      );
+      if (details == null) {
+        _shouldIgnoreNextTapUp = false;
+        return;
+      }
+      resolvedDuration = details.durationSlots;
+      note = details.note;
+    }
+
+    final bool canPlaceAll = segments.every(
+      (_SelectionSegment segment) =>
+          _canPlaceBlock(segment.dayIndex, segment.startSlot, resolvedDuration),
+    );
+    if (!canPlaceAll) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('ช่วงเวลาที่เลือกซ้อนทับกับบล็อคที่มีอยู่แล้ว')),
+        );
+      }
+      _shouldIgnoreNextTapUp = false;
+      return;
+    }
+
+    if (!mounted) {
+      _shouldIgnoreNextTapUp = false;
+      return;
+    }
+
+    setState(() {
+      final List<ScheduleBlock> updatedBlocks = <ScheduleBlock>[..._scheduleBlocks];
+      for (final _SelectionSegment segment in segments) {
+        updatedBlocks.add(
+          ScheduleBlock(
+            id: _nextBlockId++,
+            dayIndex: segment.dayIndex,
+            startSlot: segment.startSlot,
+            durationSlots: resolvedDuration,
+            type: type,
+            note: type == ScheduleBlockType.teaching ? note : null,
+          ),
+        );
+      }
+      _scheduleBlocks = updatedBlocks;
+      _legacyScheduleNote = null;
+      _sortBlocks();
+    });
+    _shouldIgnoreNextTapUp = false;
   }
 
   Future<ScheduleBlockType?> _showBlockTypeChooser() {
@@ -1405,11 +1691,14 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
   }
 
   Widget _buildScheduleGrid() {
-    final double gridWidth = (_scheduleEndHour - _scheduleStartHour) * _scheduleHourWidth;
+    final double gridWidth = _gridWidth;
     final List<int> hourLabels =
         List<int>.generate(_scheduleEndHour - _scheduleStartHour, (int index) => _scheduleStartHour + index);
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
+      physics: _isGridScrollLocked
+          ? const NeverScrollableScrollPhysics()
+          : const ClampingScrollPhysics(),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
@@ -1457,10 +1746,18 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
             ],
           ),
           const SizedBox(height: 8),
-          Column(
-            children: List<Widget>.generate(
-              _dayLabels.length,
-              (int index) => _buildDayRow(index, gridWidth),
+          Listener(
+            key: _scheduleRowsKey,
+            behavior: HitTestBehavior.translucent,
+            onPointerDown: _handleGridPointerDown,
+            onPointerMove: _handleGridPointerMove,
+            onPointerUp: _handleGridPointerUp,
+            onPointerCancel: _handleGridPointerCancel,
+            child: Column(
+              children: List<Widget>.generate(
+                _dayLabels.length,
+                (int index) => _buildDayRow(index, gridWidth),
+              ),
             ),
           ),
         ],
@@ -1473,6 +1770,12 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
         .where((ScheduleBlock block) => block.dayIndex == dayIndex)
         .toList();
     dayBlocks.sort((ScheduleBlock a, ScheduleBlock b) => a.startSlot.compareTo(b.startSlot));
+    final _SelectionRange? activeSelection = _isSelectingRange ? _buildSelectionRange() : null;
+    final bool highlightDay = activeSelection != null &&
+        dayIndex >= activeSelection.startDayIndex &&
+        dayIndex <= activeSelection.endDayIndex;
+    final double highlightLeft = highlightDay ? activeSelection!.startSlot * _slotWidth : 0;
+    final double highlightWidth = highlightDay ? activeSelection!.durationSlots * _slotWidth : 0;
     return SizedBox(
       height: _scheduleRowHeight,
       child: Row(
@@ -1503,6 +1806,22 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
                       ),
                     ),
                   ),
+                  if (highlightDay && highlightWidth > 0)
+                    Positioned(
+                      left: highlightLeft,
+                      width: highlightWidth,
+                      top: 6,
+                      bottom: 6,
+                      child: IgnorePointer(
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: Colors.grey.withOpacity(0.25),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.grey.shade400, width: 1.2),
+                          ),
+                        ),
+                      ),
+                    ),
                   for (final ScheduleBlock block in dayBlocks) _buildScheduleBlock(block),
                 ],
               ),
@@ -1756,6 +2075,51 @@ class _BlockDetails {
 }
 
 enum _BlockAction { edit, toggleType, delete }
+
+class _SelectionSegment {
+  const _SelectionSegment({
+    required this.dayIndex,
+    required this.startSlot,
+    required this.durationSlots,
+  });
+
+  final int dayIndex;
+  final int startSlot;
+  final int durationSlots;
+}
+
+class _SelectionRange {
+  const _SelectionRange({
+    required this.startDayIndex,
+    required this.endDayIndex,
+    required this.startSlot,
+    required this.endSlotExclusive,
+  });
+
+  final int startDayIndex;
+  final int endDayIndex;
+  final int startSlot;
+  final int endSlotExclusive;
+
+  int get durationSlots => endSlotExclusive - startSlot;
+
+  List<_SelectionSegment> toSegments() {
+    if (durationSlots <= 0) {
+      return <_SelectionSegment>[];
+    }
+    return <_SelectionSegment>[
+      for (int day = startDayIndex; day <= endDayIndex; day++)
+        _SelectionSegment(dayIndex: day, startSlot: startSlot, durationSlots: durationSlots)
+    ];
+  }
+}
+
+class _GridLocation {
+  const _GridLocation({required this.dayIndex, required this.slotIndex});
+
+  final int dayIndex;
+  final int slotIndex;
+}
 
 class _ScheduleGridPainter extends CustomPainter {
   const _ScheduleGridPainter({
