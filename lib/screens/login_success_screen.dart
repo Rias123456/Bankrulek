@@ -182,22 +182,79 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
   Offset? _pendingRangeGlobalOffset;
   bool _canScrollBackward = false;
   bool _canScrollForward = false;
+  late DateTime _weekStartDate;
 
   static const List<String> _dayLabels = <String>['เสาร์', 'อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัส', 'ศุกร์'];
   static const int _scheduleStartHour = 7;
   static const int _scheduleEndHour = 21;
+  static const int _minutesPerSlot = 60;
   static const double _scheduleHourWidth = 96;
   static const double _scheduleRowHeight = 72;
-  static const double _dayLabelWidth = 80;
+  static const double _dayLabelWidth = 96;
   static const double _rangeSelectionActivationThreshold = 8;
   static const String _scheduleSerializationPrefix = 'SCHEDULE_V1:';
 
-  int get _totalSlots => (_scheduleEndHour - _scheduleStartHour) * 2;
+  int get _slotsPerHour => math.max(1, 60 ~/ _minutesPerSlot);
 
-  double get _slotWidth => _scheduleHourWidth / 2;
+  int get _totalSlots => (_scheduleEndHour - _scheduleStartHour) * _slotsPerHour;
+
+  double get _slotWidth => _scheduleHourWidth / _slotsPerHour;
+
+  List<DateTime> get _currentWeekDates => List<DateTime>.generate(
+        _dayLabels.length,
+        (int index) => DateTime(
+          _weekStartDate.year,
+          _weekStartDate.month,
+          _weekStartDate.day,
+        ).add(Duration(days: index)),
+      );
+
+  DateTime _calculateWeekStart(DateTime anchor) {
+    final DateTime normalized = DateTime(anchor.year, anchor.month, anchor.day);
+    final int offset = (normalized.weekday - DateTime.saturday + 7) % 7;
+    return normalized.subtract(Duration(days: offset));
+  }
+
+  String _formatDateLabel(DateTime date) {
+    final String day = date.day.toString().padLeft(2, '0');
+    final String month = date.month.toString().padLeft(2, '0');
+    return '$day/$month/${date.year}';
+  }
+
+  String _formatWeekRangeLabel() {
+    final List<DateTime> dates = _currentWeekDates;
+    if (dates.isEmpty) {
+      return '';
+    }
+    final String start = _formatDateLabel(dates.first);
+    final String end = _formatDateLabel(dates.last);
+    if (start == end) {
+      return start;
+    }
+    return '$start - $end';
+  }
+
+  String _formatDayWithDate(int dayIndex) {
+    final int safeIndex = _clampInt(dayIndex, 0, _dayLabels.length - 1);
+    final DateTime date = _currentWeekDates[safeIndex];
+    return '${_dayLabels[safeIndex]} ${_formatDateLabel(date)}';
+  }
+
+  DateTime _blockStartDateTime(int dayIndex, int startSlot) {
+    final int safeIndex = _clampInt(dayIndex, 0, _dayLabels.length - 1);
+    final DateTime day = _currentWeekDates[safeIndex];
+    return DateTime(day.year, day.month, day.day, _scheduleStartHour)
+        .add(Duration(minutes: startSlot * _minutesPerSlot));
+  }
+
+  DateTime _blockEndDateTime(int dayIndex, int startSlot, int durationSlots) {
+    return _blockStartDateTime(dayIndex, startSlot)
+        .add(Duration(minutes: durationSlots * _minutesPerSlot));
+  }
 
   @override
   void initState() {
+    _weekStartDate = _calculateWeekStart(DateTime.now());
     super.initState();
     _scheduleScrollController.addListener(_handleScheduleScrollChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) => _handleScheduleScrollChanged());
@@ -259,6 +316,9 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
       try {
         final Map<String, dynamic> data = jsonDecode(payload) as Map<String, dynamic>;
         final List<dynamic> blockList = (data['blocks'] as List<dynamic>?) ?? <dynamic>[];
+        final int sourceMinutesPerSlot = (data['minutesPerSlot'] is int && (data['minutesPerSlot'] as int) > 0)
+            ? data['minutesPerSlot'] as int
+            : 30;
         final List<ScheduleBlock> parsedBlocks = <ScheduleBlock>[];
         final Set<int> usedIds = <int>{};
         int provisionalId = 0;
@@ -277,12 +337,23 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
             continue;
           }
           final int safeDay = _clampInt(parsed.dayIndex, 0, _dayLabels.length - 1);
-          final int safeStart = _clampInt(parsed.startSlot, 0, _totalSlots - 1);
+          final int startSlotMinutes = parsed.startSlot * sourceMinutesPerSlot;
+          final int durationMinutes = parsed.durationSlots * sourceMinutesPerSlot;
+          final int convertedStart = startSlotMinutes ~/ _minutesPerSlot;
+          final int convertedDuration = durationMinutes <= 0
+              ? 0
+              : ((durationMinutes - 1) ~/ _minutesPerSlot) + 1;
+          final int safeStart = _clampInt(convertedStart, 0, _totalSlots - 1);
           final int maxDuration = _totalSlots - safeStart;
           if (maxDuration <= 0) {
             continue;
           }
-          final int safeDuration = _clampInt(parsed.durationSlots, 1, maxDuration);
+          final int safeDuration = convertedDuration <= 0
+              ? 0
+              : _clampInt(convertedDuration, 1, maxDuration);
+          if (safeDuration <= 0) {
+            continue;
+          }
           int resolvedId = parsed.id;
           if (resolvedId <= 0 || usedIds.contains(resolvedId)) {
             do {
@@ -332,6 +403,7 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
       'format': 'grid-v1',
       'startHour': _scheduleStartHour,
       'endHour': _scheduleEndHour,
+      'minutesPerSlot': _minutesPerSlot,
       'blocks': _scheduleBlocks.map((ScheduleBlock block) => block.toJson()).toList(),
     };
     return '$_scheduleSerializationPrefix${jsonEncode(data)}';
@@ -366,6 +438,31 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
         _canScrollForward = canGoForward;
       });
     }
+  }
+
+  void _shiftWeek(int days) {
+    if (days == 0) {
+      return;
+    }
+    setState(() {
+      _weekStartDate = _weekStartDate.add(Duration(days: days));
+    });
+  }
+
+  Future<void> _pickWeekStartDate() async {
+    final DateTime initialDate = _weekStartDate;
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: initialDate,
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2100),
+    );
+    if (picked == null) {
+      return;
+    }
+    setState(() {
+      _weekStartDate = _calculateWeekStart(picked);
+    });
   }
 
   Future<void> _scrollScheduleBy(double delta) async {
@@ -470,7 +567,7 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
   }
 
   String _formatDurationLabel(int slots) {
-    final int minutes = slots * 30;
+    final int minutes = slots * _minutesPerSlot;
     final int hours = minutes ~/ 60;
     final int remainingMinutes = minutes % 60;
     if (hours > 0 && remainingMinutes > 0) {
@@ -484,10 +581,9 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
 
   String _formatTimeLabel(int hour) => '${hour.toString().padLeft(2, '0')}:00';
 
-  String _formatSlotRange(int startSlot, int durationSlots) {
-    final DateTime base = DateTime(2020, 1, 1, _scheduleStartHour);
-    final DateTime start = base.add(Duration(minutes: startSlot * 30));
-    final DateTime end = base.add(Duration(minutes: (startSlot + durationSlots) * 30));
+  String _formatSlotRange(int dayIndex, int startSlot, int durationSlots) {
+    final DateTime start = _blockStartDateTime(dayIndex, startSlot);
+    final DateTime end = _blockEndDateTime(dayIndex, startSlot, durationSlots);
     return '${_formatTime(start)} - ${_formatTime(end)}';
   }
 
@@ -937,7 +1033,7 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
                     Text(
-                      '${_dayLabels[selectedDay]} ${_formatSlotRange(startSlot, duration)}',
+                      '${_formatDayWithDate(selectedDay)} ${_formatSlotRange(selectedDay, startSlot, duration)}',
                       style: const TextStyle(fontWeight: FontWeight.w600),
                     ),
                     const SizedBox(height: 12),
@@ -953,7 +1049,7 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
                             enabled: enabled,
                             child: Row(
                               children: <Widget>[
-                                Expanded(child: Text(_dayLabels[index])),
+                                Expanded(child: Text(_formatDayWithDate(index))),
                                 if (!enabled)
                                   Text(
                                     'เต็ม',
@@ -1183,7 +1279,7 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
                 ),
                 const SizedBox(height: 16),
                 Text(
-                  '${_dayLabels[block.dayIndex]} ${_formatSlotRange(block.startSlot, block.durationSlots)}',
+                  '${_formatDayWithDate(block.dayIndex)} ${_formatSlotRange(block.dayIndex, block.startSlot, block.durationSlots)}',
                   style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 8),
@@ -1783,6 +1879,31 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 12),
+            Row(
+              children: <Widget>[
+                IconButton(
+                  onPressed: () => _shiftWeek(-7),
+                  icon: const Icon(Icons.chevron_left),
+                  tooltip: 'สัปดาห์ก่อนหน้า',
+                ),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _pickWeekStartDate,
+                    icon: const Icon(Icons.calendar_today_outlined),
+                    label: Text(
+                      _formatWeekRangeLabel(),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => _shiftWeek(7),
+                  icon: const Icon(Icons.chevron_right),
+                  tooltip: 'สัปดาห์ถัดไป',
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
             _buildScheduleGrid(),
             const SizedBox(height: 8),
             Text(
@@ -1927,6 +2048,8 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
   }
 
   Widget _buildDayRow(int dayIndex, double gridWidth) {
+    final int safeDayIndex = _clampInt(dayIndex, 0, _dayLabels.length - 1);
+    final DateTime dayDate = _currentWeekDates[safeDayIndex];
     final List<ScheduleBlock> dayBlocks = _scheduleBlocks
         .where((ScheduleBlock block) => block.dayIndex == dayIndex)
         .toList();
@@ -1941,8 +2064,9 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
             child: Align(
               alignment: Alignment.centerLeft,
               child: Text(
-                _dayLabels[dayIndex],
+                '${_dayLabels[safeDayIndex]}\n${_formatDateLabel(dayDate)}',
                 style: const TextStyle(fontWeight: FontWeight.w600),
+                maxLines: 2,
               ),
             ),
           ),
@@ -1964,6 +2088,7 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
                       painter: _ScheduleGridPainter(
                         hourWidth: _scheduleHourWidth,
                         totalHours: _scheduleEndHour - _scheduleStartHour,
+                        slotsPerHour: _slotsPerHour,
                       ),
                     ),
                   ),
@@ -2031,7 +2156,8 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
         onPanUpdate: (DragUpdateDetails details) => _updateDraggingBlock(block, details.delta),
         onPanEnd: (_) => _endDraggingBlock(),
         child: Tooltip(
-          message: '${_formatSlotRange(block.startSlot, block.durationSlots)}\n$label',
+          message:
+              '${_formatDayWithDate(block.dayIndex)} ${_formatSlotRange(block.dayIndex, block.startSlot, block.durationSlots)}\n$label',
           waitDuration: const Duration(milliseconds: 400),
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 150),
@@ -2055,7 +2181,7 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
                 Text(
-                  _formatSlotRange(block.startSlot, block.durationSlots),
+                  _formatSlotRange(block.dayIndex, block.startSlot, block.durationSlots),
                   style: TextStyle(
                     fontSize: 11,
                     color: textColor.withOpacity(0.85),
@@ -2260,26 +2386,30 @@ class _ScheduleGridPainter extends CustomPainter {
   const _ScheduleGridPainter({
     required this.hourWidth,
     required this.totalHours,
+    required this.slotsPerHour,
   });
 
   final double hourWidth;
   final int totalHours;
+  final int slotsPerHour;
 
   @override
   void paint(Canvas canvas, Size size) {
     final Paint mainPaint = Paint()
       ..color = const Color(0xFFE0E0E0)
       ..strokeWidth = 1;
-    final Paint halfPaint = Paint()
+    final Paint divisionPaint = Paint()
       ..color = const Color(0xFFF2F2F2)
       ..strokeWidth = 1;
 
     for (int hour = 0; hour <= totalHours; hour++) {
       final double x = hour * hourWidth;
       canvas.drawLine(Offset(x, 0), Offset(x, size.height), mainPaint);
-      if (hour < totalHours) {
-        final double halfX = x + hourWidth / 2;
-        canvas.drawLine(Offset(halfX, 0), Offset(halfX, size.height), halfPaint);
+      if (hour < totalHours && slotsPerHour > 1) {
+        for (int slot = 1; slot < slotsPerHour; slot++) {
+          final double slotX = x + hourWidth * slot / slotsPerHour;
+          canvas.drawLine(Offset(slotX, 0), Offset(slotX, size.height), divisionPaint);
+        }
       }
     }
     canvas.drawLine(Offset(0, 0), Offset(size.width, 0), mainPaint);
@@ -2288,6 +2418,8 @@ class _ScheduleGridPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _ScheduleGridPainter oldDelegate) {
-    return oldDelegate.hourWidth != hourWidth || oldDelegate.totalHours != totalHours;
+    return oldDelegate.hourWidth != hourWidth ||
+        oldDelegate.totalHours != totalHours ||
+        oldDelegate.slotsPerHour != slotsPerHour;
   }
 }
