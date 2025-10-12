@@ -215,8 +215,8 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
   late DateTime _weekStartDate;
 
   static const List<String> _dayLabels = <String>['เสาร์', 'อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัส', 'ศุกร์'];
-  static const int _scheduleStartHour = 7;
-  static const int _scheduleEndHour = 21;
+  static const int _scheduleStartHour = 8;
+  static const int _scheduleEndHour = 20;
   static const int _minutesPerSlot = 30;
   static const double _scheduleHourWidth = 96;
   static const double _scheduleRowHeight = 72;
@@ -519,15 +519,6 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
         _canScrollForward = canGoForward;
       });
     }
-  }
-
-  void _shiftWeek(int days) {
-    if (days == 0) {
-      return;
-    }
-    setState(() {
-      _weekStartDate = _weekStartDate.add(Duration(days: days));
-    });
   }
 
   Future<void> _pickWeekStartDate() async {
@@ -875,7 +866,7 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
   FocusManager.instance.primaryFocus?.unfocus();
   await Future.delayed(const Duration(milliseconds: 150));
 
-  // ✅ เปิด modal เลือกประเภท block (สอน / ไม่ว่าง)
+  // ✅ เปิด modal เลือกประเภท block (สอน / ไม่สอน)
   final ScheduleBlockType? type = await _showBlockTypeChooser();
   if (!mounted || type == null) {
     debugPrint('🚫 ยกเลิกเลือกประเภท block');
@@ -889,7 +880,6 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
     type: type,
     dayIndex: dayIndex,
     dayDate: _currentWeekDates[dayIndex],
-    startSlot: startSlot,
     initialDuration: durationSlots,
   );
 
@@ -913,7 +903,7 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
     startSlot: startSlot,
     durationSlots: detailsResult.durationSlots,
     type: type,
-    note: type == ScheduleBlockType.teaching ? detailsResult.note : null,
+    note: detailsResult.note,
     date: _normalizeDate(detailsResult.dayDate),
     isRecurring: detailsResult.isRecurring,
   );
@@ -978,7 +968,6 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
       type: type,
       dayIndex: dayIndex,
       dayDate: dayDate,
-      startSlot: slot,
     );
     if (!mounted) {
       return;
@@ -998,7 +987,7 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
       startSlot: slot,
       durationSlots: details.durationSlots,
       type: type,
-      note: type == ScheduleBlockType.teaching ? details.note : null,
+      note: details.note,
       date: _normalizeDate(details.dayDate),
       isRecurring: details.isRecurring,
     );
@@ -1010,18 +999,108 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
   }
 
   Future<ScheduleBlockType?> _showBlockTypeChooser() {
+    ScheduleBlockType selectedType = ScheduleBlockType.teaching;
     return showModalBottomSheet<ScheduleBlockType>(
       context: context,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (BuildContext context) {
+        return StatefulBuilder(
+          builder: (BuildContext context, StateSetter setState) {
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    Center(
+                      child: Container(
+                        width: 40,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade400,
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    DropdownButtonFormField<ScheduleBlockType>(
+                      value: selectedType,
+                      decoration: const InputDecoration(
+                        labelText: 'ประเภทบล็อค',
+                      ),
+                      items: const <DropdownMenuItem<ScheduleBlockType>>[
+                        DropdownMenuItem<ScheduleBlockType>(
+                          value: ScheduleBlockType.teaching,
+                          child: Text('สอน'),
+                        ),
+                        DropdownMenuItem<ScheduleBlockType>(
+                          value: ScheduleBlockType.unavailable,
+                          child: Text('ไม่สอน'),
+                        ),
+                      ],
+                      onChanged: (ScheduleBlockType? value) {
+                        if (value == null) {
+                          return;
+                        }
+                        setState(() => selectedType = value);
+                      },
+                    ),
+                    const SizedBox(height: 24),
+                    Row(
+                      children: <Widget>[
+                        TextButton(
+                          onPressed: () => Navigator.pop(context),
+                          child: const Text('ยกเลิก'),
+                        ),
+                        const Spacer(),
+                        ElevatedButton(
+                          onPressed: () => Navigator.pop(context, selectedType),
+                          child: const Text('ยืนยัน'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<_BlockDetails?> _collectBlockDetails({
+    required ScheduleBlockType type,
+    required int dayIndex,
+    required DateTime dayDate,
+    int? initialDuration,
+    String? initialNote,
+    bool initialRecurring = false,
+  }) async {
+    final int durationSlots = initialDuration ?? 1;
+    final TextEditingController noteController = TextEditingController(text: initialNote ?? '');
+
+    final _BlockDetails? result = await showModalBottomSheet<_BlockDetails>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (BuildContext sheetContext) {
         return SafeArea(
           child: Padding(
-            padding: const EdgeInsets.all(20),
+            padding: EdgeInsets.only(
+              left: 20,
+              right: 20,
+              top: 16,
+              bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 16,
+            ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
                 Center(
                   child: Container(
@@ -1034,302 +1113,48 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
                   ),
                 ),
                 const SizedBox(height: 16),
-                const Text(
-                  'เลือกประเภทบล็อคเวลา',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                TextField(
+                  controller: noteController,
+                  autofocus: true,
+                  textCapitalization: TextCapitalization.sentences,
+                  decoration: const InputDecoration(
+                    labelText: 'รายละเอียด',
+                  ),
+                  maxLines: null,
                 ),
-                const SizedBox(height: 16),
-                _buildBlockOption(
-                  color: const Color(0xFFFFE4E1),
-                  borderColor: const Color(0xFFB71C1C),
-                  textColor: Colors.grey.shade600,
-                  title: 'สอน',
-                  subtitle: '',
-                  onTap: () => Navigator.pop(context, ScheduleBlockType.teaching),
+                const SizedBox(height: 24),
+                Row(
+                  children: <Widget>[
+                    TextButton(
+                      onPressed: () => Navigator.pop(sheetContext),
+                      child: const Text('ยกเลิก'),
+                    ),
+                    const Spacer(),
+                    ElevatedButton(
+                      onPressed: () {
+                        final String trimmedNote = noteController.text.trim();
+                        Navigator.pop(
+                          sheetContext,
+                          _BlockDetails(
+                            dayIndex: dayIndex,
+                            dayDate: _normalizeDate(dayDate),
+                            durationSlots: durationSlots,
+                            note: trimmedNote.isEmpty ? null : trimmedNote,
+                            isRecurring: initialRecurring,
+                          ),
+                        );
+                      },
+                      child: const Text('ยืนยัน'),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 12),
-                _buildBlockOption(
-                  color: Colors.grey.shade300,
-                  borderColor: Colors.grey.shade500,
-                  textColor: Colors.grey.shade700,
-                  title: 'ไม่ว่าง',
-                  subtitle: '',
-                  onTap: () => Navigator.pop(context, ScheduleBlockType.unavailable),
-                ),
-                const SizedBox(height: 12),
               ],
             ),
           ),
         );
       },
     );
-  }
 
-  Widget _buildBlockOption({
-    required Color color,
-    required Color borderColor,
-    required Color textColor,
-    required String title,
-    required String subtitle,
-    required VoidCallback onTap,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: color,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: borderColor, width: 1.2),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Text(
-              title,
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                color: textColor,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              subtitle,
-              style: TextStyle(color: textColor.withOpacity(0.85)),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Future<_BlockDetails?> _collectBlockDetails({
-    required ScheduleBlockType type,
-    required int dayIndex,
-    required DateTime dayDate,
-    required int startSlot,
-    int? initialDuration,
-    String? initialNote,
-    int? ignoreBlockId,
-    bool initialRecurring = false,
-  }) async {
-    final List<DateTime> weekDates = _currentWeekDates;
-    final List<int> maxDurationPerDay = List<int>.generate(
-      weekDates.length,
-      (int index) => _calculateMaxDuration(weekDates[index], startSlot, ignoreBlockId),
-    );
-    if (maxDurationPerDay.every((int value) => value <= 0)) {
-      return null;
-    }
-
-    int selectedDay = _clampInt(dayIndex, 0, weekDates.length - 1);
-    DateTime selectedDate = _normalizeDate(dayDate);
-    if (maxDurationPerDay[selectedDay] <= 0) {
-      final int fallbackIndex = maxDurationPerDay.indexWhere((int value) => value > 0);
-      if (fallbackIndex == -1) {
-        return null;
-      }
-      selectedDay = fallbackIndex;
-      selectedDate = weekDates[fallbackIndex];
-    }
-
-    int maxForSelectedDay = math.max(1, maxDurationPerDay[selectedDay]);
-    int duration = initialDuration != null
-        ? _clampInt(initialDuration, 1, maxForSelectedDay)
-        : math.min(
-            type == ScheduleBlockType.teaching ? math.min(2, maxForSelectedDay) : 1,
-            maxForSelectedDay,
-          );
-    bool isRecurring = initialRecurring;
-    final TextEditingController noteController = TextEditingController(text: initialNote ?? '');
-
-    final _BlockDetails? result = await showModalBottomSheet<_BlockDetails>(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (BuildContext sheetContext) {
-        return StatefulBuilder(
-          builder: (BuildContext context, StateSetter setState) {
-            final bool isTeaching = type == ScheduleBlockType.teaching;
-            final double bottomPadding = MediaQuery.of(context).viewInsets.bottom;
-            return SafeArea(
-              child: Padding(
-                padding: EdgeInsets.only(
-                  left: 20,
-                  right: 20,
-                  top: 16,
-                  bottom: bottomPadding + 16,
-                ),
-                child: SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Center(
-                        child: Container(
-                          width: 40,
-                          height: 4,
-                          decoration: BoxDecoration(
-                            color: Colors.grey.shade400,
-                            borderRadius: BorderRadius.circular(2),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        isTeaching ? 'เพิ่มช่วงเวลาสอน' : 'ทำเครื่องหมายไม่ว่าง',
-                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        '${_formatDayWithDateFromDate(selectedDate)} ${_formatSlotRange(selectedDate, startSlot, duration)}',
-                        style: const TextStyle(fontWeight: FontWeight.w600),
-                      ),
-                      const SizedBox(height: 16),
-                      DropdownButtonFormField<int>(
-                        value: selectedDay,
-                        decoration: const InputDecoration(labelText: 'วัน'),
-                        items: List<DropdownMenuItem<int>>.generate(
-                          weekDates.length,
-                          (int index) {
-                            final bool enabled = maxDurationPerDay[index] > 0;
-                            final DateTime optionDate = weekDates[index];
-                            return DropdownMenuItem<int>(
-                              value: index,
-                              enabled: enabled,
-                              child: Row(
-                                children: <Widget>[
-                                  Expanded(child: Text(_formatDayWithDateFromDate(optionDate))),
-                                  if (!enabled)
-                                    Text(
-                                      'เต็ม',
-                                      style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
-                                    ),
-                                ],
-                              ),
-                            );
-                          },
-                        ),
-                        onChanged: (int? value) {
-                          if (value == null || maxDurationPerDay[value] <= 0) {
-                            return;
-                          }
-                          setState(() {
-                            selectedDay = value;
-                            selectedDate = weekDates[value];
-                            maxForSelectedDay = math.max(1, maxDurationPerDay[value]);
-                            duration = _clampInt(duration, 1, maxForSelectedDay);
-                          });
-                        },
-                      ),
-                      const SizedBox(height: 16),
-                      if (isTeaching) ...<Widget>[
-                        TextField(
-                          controller: noteController,
-                          autofocus: true,
-                          textCapitalization: TextCapitalization.sentences,
-                          decoration: const InputDecoration(
-                            labelText: 'รายละเอียดการสอน',
-                            hintText: 'เช่น ชื่อวิชา หรือชื่อนักเรียน',
-                          ),
-                          maxLines: null,
-                        ),
-                        const SizedBox(height: 12),
-                        SwitchListTile.adaptive(
-                          value: isRecurring,
-                          onChanged: (bool value) => setState(() => isRecurring = value),
-                          contentPadding: EdgeInsets.zero,
-                          title: const Text('สอนประจำทุกสัปดาห์'),
-                          subtitle: const Text('ทำซ้ำในวันและเวลาเดียวกันของทุกสัปดาห์'),
-                        ),
-                        const SizedBox(height: 12),
-                      ],
-                      Row(
-                        children: <Widget>[
-                          const Text('ระยะเวลา'),
-                          const Spacer(),
-                          IconButton(
-                            onPressed: duration > 1
-                                ? () => setState(() {
-                                      duration = math.max(1, duration - 1);
-                                    })
-                                : null,
-                            icon: const Icon(Icons.remove_circle_outline),
-                          ),
-                          Text(
-                            _formatDurationLabel(duration),
-                            style: const TextStyle(fontWeight: FontWeight.w600),
-                          ),
-                          IconButton(
-                            onPressed: duration < maxForSelectedDay
-                                ? () => setState(() {
-                                      duration = math.min(maxForSelectedDay, duration + 1);
-                                    })
-                                : null,
-                            icon: const Icon(Icons.add_circle_outline),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        '',
-                        style: Theme.of(context)
-                            .textTheme
-                            .bodySmall
-                            ?.copyWith(color: Colors.grey.shade600),
-                      ),
-                      const SizedBox(height: 24),
-                      Row(
-                        children: <Widget>[
-                          TextButton(
-                            onPressed: () => Navigator.pop(context),
-                            child: const Text('ยกเลิก'),
-                          ),
-                          const Spacer(),
-                          ElevatedButton(
-                            onPressed: () {
-                              if (!_canPlaceBlock(selectedDate, startSlot, duration, ignoreId: ignoreBlockId)) {
-                                if (!mounted) {
-                                  return;
-                                }
-                                ScaffoldMessenger.of(this.context).showSnackBar(
-                                  const SnackBar(content: Text('ช่วงเวลานี้ถูกใช้ไปแล้ว')),
-                                );
-                                return;
-                              }
-                              Navigator.pop(
-                                context,
-                                _BlockDetails(
-                                  dayIndex: selectedDay,
-                                  dayDate: selectedDate,
-                                  durationSlots: duration,
-                                  note: isTeaching
-                                      ? (noteController.text.trim().isEmpty
-                                          ? null
-                                          : noteController.text.trim())
-                                      : null,
-                                  isRecurring: isTeaching ? isRecurring : false,
-                                ),
-                              );
-                            },
-                            child: const Text('ยืนยัน'),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            );
-          },
-        );
-      },
-    );
     noteController.dispose();
     return result;
   }
@@ -1432,178 +1257,40 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
 
   Future<void> _onBlockTapped(ScheduleBlock block) async {
     final DateTime blockDisplayDate = _displayDateForBlock(block);
-    final _BlockAction? action = await showModalBottomSheet<_BlockAction>(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (BuildContext context) {
-        final bool isTeaching = block.type == ScheduleBlockType.teaching;
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Center(
-                  child: Container(
-                    width: 40,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade400,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  '${_formatDayWithDateFromDate(blockDisplayDate)} ${_formatSlotRange(blockDisplayDate, block.startSlot, block.durationSlots)}',
-                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 8),
-                Text('สถานะ: ${isTeaching ? 'สอน' : 'ไม่ว่าง'}'),
-                if (isTeaching && block.note != null && block.note!.isNotEmpty) ...<Widget>[
-                  const SizedBox(height: 8),
-                  Text('รายละเอียด: ${block.note}'),
-                ],
-                const SizedBox(height: 16),
-                ListTile(
-                  leading: const Icon(Icons.edit_outlined),
-                  title: const Text('แก้ไขรายละเอียด'),
-                  onTap: () => Navigator.pop(context, _BlockAction.edit),
-                ),
-                ListTile(
-                  leading: Icon(isTeaching ? Icons.block : Icons.school_outlined),
-                  title: Text(isTeaching ? 'เปลี่ยนเป็นไม่ว่าง' : 'เปลี่ยนเป็นช่วงสอน'),
-                  onTap: () => Navigator.pop(context, _BlockAction.toggleType),
-                ),
-                ListTile(
-                  leading: const Icon(Icons.delete_outline),
-                  iconColor: Colors.redAccent,
-                  textColor: Colors.redAccent,
-                  title: const Text('ลบบล็อคนี้'),
-                  onTap: () => Navigator.pop(context, _BlockAction.delete),
-                ),
-                const SizedBox(height: 12),
-              ],
-            ),
-          ),
-        );
-      },
+    final _BlockDetails? details = await _collectBlockDetails(
+      type: block.type,
+      dayIndex: _dayIndexForDate(blockDisplayDate),
+      dayDate: blockDisplayDate,
+      initialDuration: block.durationSlots,
+      initialNote: block.note,
+      initialRecurring: block.isRecurring,
     );
 
-    if (!mounted) {
+    if (!mounted || details == null) {
       return;
     }
 
-    if (action == null) {
-      return;
-    }
-
-    switch (action) {
-      case _BlockAction.edit:
-        final _BlockDetails? details = await _collectBlockDetails(
-          type: block.type,
-          dayIndex: _dayIndexForDate(blockDisplayDate),
-          dayDate: blockDisplayDate,
-          startSlot: block.startSlot,
-          initialDuration: block.durationSlots,
-          initialNote: block.note,
-          ignoreBlockId: block.id,
-          initialRecurring: block.isRecurring,
-        );
-        if (!mounted) {
-          return;
-        }
-        if (details != null) {
-          if (!_canPlaceBlock(details.dayDate, block.startSlot, details.durationSlots, ignoreId: block.id)) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('ช่วงเวลานี้ถูกใช้ไปแล้ว')),
-            );
-            return;
-          }
-          setState(() {
-            _scheduleBlocks = _scheduleBlocks
-                .map(
-                  (ScheduleBlock current) => current.id == block.id
-                      ? current.copyWith(
-                          dayIndex: _dayIndexForDate(details.dayDate),
-                          startSlot: block.startSlot,
-                          durationSlots: details.durationSlots,
-                          note: block.type == ScheduleBlockType.teaching ? details.note : null,
-                          date: _normalizeDate(details.dayDate),
-                          isRecurring: block.type == ScheduleBlockType.teaching ? details.isRecurring : false,
-                        )
-                      : current,
-                )
-                .toList();
-            _sortBlocks();
-          });
-        }
-        break;
-      case _BlockAction.toggleType:
-        if (block.type == ScheduleBlockType.teaching) {
-          setState(() {
-            _scheduleBlocks = _scheduleBlocks
-                .map(
-                  (ScheduleBlock current) => current.id == block.id
-                      ? current.copyWith(
-                          type: ScheduleBlockType.unavailable,
-                          clearNote: true,
-                          isRecurring: false,
-                        )
-                      : current,
-                )
-                .toList();
-          });
-        } else {
-          final _BlockDetails? details = await _collectBlockDetails(
-            type: ScheduleBlockType.teaching,
-            dayIndex: _dayIndexForDate(blockDisplayDate),
-            dayDate: blockDisplayDate,
-            startSlot: block.startSlot,
-            initialDuration: block.durationSlots,
-            ignoreBlockId: block.id,
-          );
-          if (!mounted) {
-            return;
-          }
-          if (details != null) {
-            if (!_canPlaceBlock(details.dayDate, block.startSlot, details.durationSlots, ignoreId: block.id)) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('ช่วงเวลานี้ถูกใช้ไปแล้ว')),
-              );
-              return;
-            }
-            setState(() {
-              _scheduleBlocks = _scheduleBlocks
-                  .map(
-                    (ScheduleBlock current) => current.id == block.id
-                        ? current.copyWith(
-                            dayIndex: _dayIndexForDate(details.dayDate),
-                            startSlot: block.startSlot,
-                            type: ScheduleBlockType.teaching,
-                            durationSlots: details.durationSlots,
-                            note: details.note,
-                            date: _normalizeDate(details.dayDate),
-                            isRecurring: details.isRecurring,
-                          )
-                        : current,
+    setState(() {
+      _scheduleBlocks = _scheduleBlocks
+          .map(
+            (ScheduleBlock current) => current.id == block.id
+                ? current.copyWith(
+                    dayIndex: _dayIndexForDate(details.dayDate),
+                    startSlot: block.startSlot,
+                    durationSlots: details.durationSlots,
+                    note: details.note,
+                    date: _normalizeDate(details.dayDate),
+                    isRecurring: block.type == ScheduleBlockType.teaching
+                        ? details.isRecurring
+                        : block.isRecurring,
                   )
-                  .toList();
-            _sortBlocks();
-            });
-          }
-        }
-        break;
-      case _BlockAction.delete:
-        setState(() {
-          _scheduleBlocks = _scheduleBlocks.where((ScheduleBlock current) => current.id != block.id).toList();
-        });
-        break;
-    }
+                : current,
+          )
+          .toList();
+      _sortBlocks();
+    });
   }
+
 
   ImageProvider<Object>? _buildProfileImage(String? base64Data) {
     if (base64Data == null || base64Data.isEmpty) {
@@ -2070,29 +1757,16 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 12),
-            Row(
-              children: <Widget>[
-                IconButton(
-                  onPressed: () => _shiftWeek(-7),
-                  icon: const Icon(Icons.chevron_left),
-                  tooltip: 'สัปดาห์ก่อนหน้า',
+            Align(
+              alignment: Alignment.centerRight,
+              child: OutlinedButton.icon(
+                onPressed: _pickWeekStartDate,
+                icon: const Icon(Icons.calendar_today_outlined),
+                label: Text(
+                  _formatWeekRangeLabel(),
+                  overflow: TextOverflow.ellipsis,
                 ),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: _pickWeekStartDate,
-                    icon: const Icon(Icons.calendar_today_outlined),
-                    label: Text(
-                      _formatWeekRangeLabel(),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ),
-                IconButton(
-                  onPressed: () => _shiftWeek(7),
-                  icon: const Icon(Icons.chevron_right),
-                  tooltip: 'สัปดาห์ถัดไป',
-                ),
-              ],
+              ),
             ),
             const SizedBox(height: 12),
             _buildScheduleGrid(),
@@ -2332,7 +2006,6 @@ child: RawGestureDetector(
               type: type,
               dayIndex: dayIndexFinal,
               dayDate: _currentWeekDates[dayIndexFinal],
-              startSlot: startSlot,
               initialDuration: durationSlots,
             );
 
@@ -2344,7 +2017,7 @@ child: RawGestureDetector(
               startSlot: startSlot,
               durationSlots: detailsResult.durationSlots,
               type: type,
-              note: type == ScheduleBlockType.teaching ? detailsResult.note : null,
+              note: detailsResult.note,
               date: _normalizeDate(detailsResult.dayDate),
               isRecurring: detailsResult.isRecurring,
             );
@@ -2414,9 +2087,9 @@ child: RawGestureDetector(
     final Color backgroundColor = isTeaching ? const Color(0xFFFFE4E1) : Colors.grey.shade300;
     final Color textColor = isTeaching ? Colors.grey.shade700 : Colors.grey.shade800;
     final Color borderColor = isTeaching ? const Color(0xFFB71C1C) : Colors.grey.shade500;
-    final String label = isTeaching
-        ? (block.note != null && block.note!.isNotEmpty ? block.note! : 'สอน')
-        : 'ไม่ว่าง';
+    final String label = block.note != null && block.note!.isNotEmpty
+        ? block.note!
+        : (isTeaching ? 'สอน' : 'ไม่สอน');
     final bool isRecurring = block.isRecurring && isTeaching;
     final bool isActive = _draggingBlockId == block.id;
     final bool isLifted = isActive && _isDragPrimed;
@@ -2694,8 +2367,6 @@ class _SelectionRange {
   final int startSlot;
   final int durationSlots;
 }
-
-enum _BlockAction { edit, toggleType, delete }
 
 class _ScheduleGridPainter extends CustomPainter {
   const _ScheduleGridPainter({
