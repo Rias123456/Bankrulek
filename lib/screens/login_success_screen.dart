@@ -286,19 +286,6 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
     return '$day/$month/${date.year}';
   }
 
-  String _formatWeekRangeLabel() {
-    final List<DateTime> dates = _currentWeekDates;
-    if (dates.isEmpty) {
-      return '';
-    }
-    final String start = _formatDateLabel(dates.first);
-    final String end = _formatDateLabel(dates.last);
-    if (start == end) {
-      return start;
-    }
-    return '$start - $end';
-  }
-
   String _formatDayWithDate(int dayIndex) {
     final int safeIndex = _clampInt(dayIndex, 0, _dayLabels.length - 1);
     final DateTime date = _currentWeekDates[safeIndex];
@@ -520,22 +507,6 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
         _canScrollForward = canGoForward;
       });
     }
-  }
-
-  Future<void> _pickWeekStartDate() async {
-    final DateTime initialDate = _weekStartDate;
-    final DateTime? picked = await showDatePicker(
-      context: context,
-      initialDate: initialDate,
-      firstDate: DateTime(2000),
-      lastDate: DateTime(2100),
-    );
-    if (picked == null) {
-      return;
-    }
-    setState(() {
-      _weekStartDate = _calculateWeekStart(picked);
-    });
   }
 
   Future<void> _scrollScheduleBy(double delta) async {
@@ -871,7 +842,7 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
   FocusManager.instance.primaryFocus?.unfocus();
   await Future.delayed(const Duration(milliseconds: 150));
 
-  // ✅ เปิด modal เลือกประเภท block (สอน / ไม่สอน)
+  // ✅ เปิด modal เลือกประเภท block (สอน / ไม่ว่าง)
   final ScheduleBlockType? type =
       await _showBlockTypeChooser(position: _lastInteractionPosition);
   if (!mounted || type == null) {
@@ -1042,14 +1013,44 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
           context: context,
           position: menuPosition,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          items: const <PopupMenuEntry<ScheduleBlockType>>[
+          items: <PopupMenuEntry<ScheduleBlockType>>[
             PopupMenuItem<ScheduleBlockType>(
               value: ScheduleBlockType.teaching,
-              child: Text('สอน'),
+              padding: EdgeInsets.zero,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFE4E1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                child: Text(
+                  'สอน',
+                  style: TextStyle(
+                    color: Colors.grey.shade600,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
             ),
             PopupMenuItem<ScheduleBlockType>(
               value: ScheduleBlockType.unavailable,
-              child: Text('ไม่สอน'),
+              padding: EdgeInsets.zero,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                child: Text(
+                  'ไม่ว่าง',
+                  style: TextStyle(
+                    color: Colors.grey.shade800,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
             ),
           ],
         );
@@ -1070,14 +1071,27 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
               ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFFFE4E1),
+                  foregroundColor: Colors.grey.shade600,
+                  textStyle: const TextStyle(fontWeight: FontWeight.w600),
+                  elevation: 0,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                ),
                 onPressed: () =>
                     Navigator.of(dialogContext).pop(ScheduleBlockType.teaching),
                 child: const Text('สอน'),
               ),
               const SizedBox(height: 8),
               OutlinedButton(
+                style: OutlinedButton.styleFrom(
+                  backgroundColor: Colors.grey.shade300,
+                  foregroundColor: Colors.grey.shade800,
+                  textStyle: const TextStyle(fontWeight: FontWeight.w600),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                ),
                 onPressed: () => Navigator.of(dialogContext).pop(ScheduleBlockType.unavailable),
-                child: const Text('ไม่สอน'),
+                child: const Text('ไม่ว่าง'),
               ),
             ],
           ),
@@ -1763,24 +1777,8 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 12),
-            Align(
-              alignment: Alignment.centerRight,
-              child: OutlinedButton.icon(
-                onPressed: _pickWeekStartDate,
-                icon: const Icon(Icons.calendar_today_outlined),
-                label: Text(
-                  _formatWeekRangeLabel(),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
             _buildScheduleGrid(),
             const SizedBox(height: 8),
-            Text(
-              '',
-              style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
-            ),
             if (_legacyScheduleNote != null && _legacyScheduleNote!.isNotEmpty) ...<Widget>[
               const SizedBox(height: 16),
               Row(
@@ -2099,7 +2097,7 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
     final Color borderColor = isTeaching ? const Color(0xFFB71C1C) : Colors.grey.shade500;
     final String label = block.note != null && block.note!.isNotEmpty
         ? block.note!
-        : (isTeaching ? 'สอน' : 'ไม่สอน');
+        : (isTeaching ? 'สอน' : 'ไม่ว่าง');
     final bool isRecurring = block.isRecurring && isTeaching;
     final bool isActive = _draggingBlockId == block.id;
     final bool isLifted = isActive && _isDragPrimed;
