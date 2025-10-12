@@ -185,6 +185,8 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
   final TextEditingController _travelDurationController = TextEditingController();
   final ScrollController _scheduleScrollController = ScrollController();
   ScrollHoldController? _scheduleHoldController;
+  final List<GlobalKey> _dayStackKeys =
+      List<GlobalKey>.generate(_dayLabels.length, (_) => GlobalKey());
 
   List<String> _selectedSubjects = <String>[];
   String? _profileImageBase64;
@@ -220,7 +222,7 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
   static const int _scheduleEndHour = 20;
   static const int _minutesPerSlot = 30;
   static const double _scheduleHourWidth = 96;
-  static const double _scheduleRowHeight = 72;
+  static const double _scheduleRowHeight = 60;
   static const double _dayLabelWidth = 96;
   static const double _rangeSelectionActivationThreshold = 8;
   static const String _scheduleSerializationPrefix = 'SCHEDULE_V1:';
@@ -995,19 +997,27 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
     });
   }
 
-  Future<ScheduleBlockType?> _showBlockTypeChooser({Offset? position}) async {
+  Future<ScheduleBlockType?> _showBlockTypeChooser({Offset? position, Rect? anchorRect}) async {
     final OverlayState? overlay = Overlay.of(context);
     if (overlay != null) {
       final RenderObject? overlayRenderObject = overlay.context.findRenderObject();
       if (overlayRenderObject is RenderBox) {
         final RenderBox overlayBox = overlayRenderObject;
-        final Offset resolvedPosition = position ?? overlayBox.size.center(Offset.zero);
-        final RelativeRect menuPosition = RelativeRect.fromLTRB(
-          resolvedPosition.dx,
-          resolvedPosition.dy,
-          overlayBox.size.width - resolvedPosition.dx,
-          overlayBox.size.height - resolvedPosition.dy,
-        );
+        RelativeRect menuPosition;
+        if (anchorRect != null) {
+          final Offset topLeft = overlayBox.globalToLocal(anchorRect.topLeft);
+          final Offset bottomRight = overlayBox.globalToLocal(anchorRect.bottomRight);
+          final Rect localRect = Rect.fromPoints(topLeft, bottomRight);
+          menuPosition = RelativeRect.fromRect(localRect, Offset.zero & overlayBox.size);
+        } else {
+          final Offset resolvedPosition = position ?? overlayBox.size.center(Offset.zero);
+          menuPosition = RelativeRect.fromLTRB(
+            resolvedPosition.dx,
+            resolvedPosition.dy,
+            overlayBox.size.width - resolvedPosition.dx,
+            overlayBox.size.height - resolvedPosition.dy,
+          );
+        }
 
         final ScheduleBlockType? selection = await showMenu<ScheduleBlockType>(
           context: context,
@@ -1100,8 +1110,10 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
                       controller: noteController,
                       autofocus: true,
                       textCapitalization: TextCapitalization.sentences,
-                      decoration: const InputDecoration(
+                      decoration: InputDecoration(
                         labelText: 'รายละเอียด',
+                        hintText: 'เช่น น้อวงตรัง คณิต ม.2',
+                        hintStyle: TextStyle(color: Colors.grey.shade400),
                       ),
                       maxLines: null,
                     ),
@@ -1852,9 +1864,10 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
                                 (int hour) => SizedBox(
                                   width: _scheduleHourWidth,
                                   child: Align(
-                                    alignment: Alignment.centerLeft,
+                                    alignment: Alignment.center,
                                     child: Text(
                                       _formatTimeLabel(hour),
+                                      textAlign: TextAlign.center,
                                       style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12),
                                     ),
                                   ),
@@ -1867,9 +1880,10 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
                             child: SizedBox(
                               width: _scheduleHourWidth / 2,
                               child: Align(
-                                alignment: Alignment.centerRight,
+                                alignment: Alignment.center,
                                 child: Text(
                                   _formatTimeLabel(_scheduleEndHour),
+                                  textAlign: TextAlign.center,
                                   style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12),
                                 ),
                               ),
@@ -1900,6 +1914,7 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
   Widget _buildDayRow(int dayIndex, double gridWidth) {
     final int safeDayIndex = _clampInt(dayIndex, 0, _dayLabels.length - 1);
     final DateTime dayDate = _currentWeekDates[safeDayIndex];
+    final GlobalKey stackKey = _dayStackKeys[safeDayIndex];
     final List<ScheduleBlock> dayBlocks = _scheduleBlocks
         .where(
           (ScheduleBlock block) =>
@@ -1915,11 +1930,12 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
           SizedBox(
             width: _dayLabelWidth,
             child: Align(
-              alignment: Alignment.centerLeft,
+              alignment: Alignment.centerRight,
               child: Text(
                 _dayLabels[safeDayIndex],
                 style: const TextStyle(fontWeight: FontWeight.w600),
                 maxLines: 1,
+                textAlign: TextAlign.right,
               ),
             ),
           ),
@@ -1973,17 +1989,43 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
                         }
 
                         final int dayIndexFinal = _rangeSelectionDayIndex ?? dayIndex;
-                        final int startSlot = _currentSelectionRange!.startSlot;
-                        final int durationSlots = _currentSelectionRange!.durationSlots;
-
-                        setState(() {
-                          _isRangeSelecting = false;
-                        });
+                        final _SelectionRange selection = _currentSelectionRange!;
+                        final int startSlot = selection.startSlot;
+                        final int durationSlots = selection.durationSlots;
 
                         _lastInteractionPosition = details.globalPosition;
-                        final ScheduleBlockType? type =
-                            await _showBlockTypeChooser(position: details.globalPosition);
+
+                        Rect? anchorRect;
+                        final RenderBox? stackBox =
+                            stackKey.currentContext?.findRenderObject() as RenderBox?;
+                        if (stackBox != null) {
+                          final double highlightLeft = selection.startSlot * _slotWidth;
+                          final double highlightWidth = selection.durationSlots * _slotWidth;
+                          final Offset topLeft =
+                              stackBox.localToGlobal(Offset(highlightLeft, 6));
+                          final Offset bottomRight = stackBox.localToGlobal(
+                            Offset(highlightLeft + highlightWidth, stackBox.size.height - 6),
+                          );
+                          anchorRect = Rect.fromPoints(topLeft, bottomRight);
+                        }
+
+                        final ScheduleBlockType? type = await _showBlockTypeChooser(
+                          position: anchorRect == null ? details.globalPosition : null,
+                          anchorRect: anchorRect,
+                        );
+
+                        if (!mounted) {
+                          return;
+                        }
+
                         if (type == null) {
+                          setState(() {
+                            _isRangeSelecting = false;
+                            _currentSelectionRange = null;
+                            _rangeSelectionAnchorSlot = null;
+                            _rangeSelectionDayIndex = null;
+                            _rangeSelectionSelectedDate = null;
+                          });
                           return;
                         }
 
@@ -1994,7 +2036,18 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
                           initialDuration: durationSlots,
                         );
 
+                        if (!mounted) {
+                          return;
+                        }
+
                         if (detailsResult == null) {
+                          setState(() {
+                            _isRangeSelecting = false;
+                            _currentSelectionRange = null;
+                            _rangeSelectionAnchorSlot = null;
+                            _rangeSelectionDayIndex = null;
+                            _rangeSelectionSelectedDate = null;
+                          });
                           return;
                         }
 
@@ -2012,13 +2065,24 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
                         setState(() {
                           _scheduleBlocks = [..._scheduleBlocks, newBlock];
                           _sortBlocks();
+                          _isRangeSelecting = false;
+                          _currentSelectionRange = null;
+                          _rangeSelectionAnchorSlot = null;
+                          _rangeSelectionDayIndex = null;
+                          _rangeSelectionSelectedDate = null;
                         });
 
                         debugPrint('✅ เพิ่ม block สำเร็จ slot=$startSlot dur=$durationSlots');
                       }
                       ..onLongPressCancel = () {
                         debugPrint('🚫 ยกเลิก long press');
-                        setState(() => _isRangeSelecting = false);
+                        setState(() {
+                          _isRangeSelecting = false;
+                          _currentSelectionRange = null;
+                          _rangeSelectionAnchorSlot = null;
+                          _rangeSelectionDayIndex = null;
+                          _rangeSelectionSelectedDate = null;
+                        });
                         _lastInteractionPosition = null;
                       };
                   },
@@ -2039,7 +2103,8 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
               },
               behavior: HitTestBehavior.opaque,
               child: Stack(
-    children: [
+                key: stackKey,
+                children: [
       Positioned.fill(
         child: CustomPaint(
           painter: _ScheduleGridPainter(
@@ -2135,50 +2200,16 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
                     ]
                   : const <BoxShadow>[],
             ),
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            child: Stack(
+              fit: StackFit.expand,
               children: <Widget>[
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      _formatSlotRange(dayDate, block.startSlot, block.durationSlots),
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: textColor.withOpacity(0.85),
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    if (isRecurring)
-                      Padding(
-                        padding: const EdgeInsets.only(left: 6),
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            color: borderColor.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                            child: Text(
-                              'ประจำ',
-                              style: TextStyle(
-                                color: borderColor,
-                                fontSize: 10,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-                if (hasLabel) ...<Widget>[
-                  const SizedBox(height: 4),
-                  Expanded(
+                if (hasLabel)
+                  Align(
+                    alignment: Alignment.centerLeft,
                     child: Text(
                       label!,
-                      maxLines: 2,
+                      maxLines: 3,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         color: textColor,
@@ -2186,7 +2217,27 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
                       ),
                     ),
                   ),
-                ],
+                if (isRecurring)
+                  Align(
+                    alignment: Alignment.topRight,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: borderColor.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        child: Text(
+                          'ประจำ',
+                          style: TextStyle(
+                            color: borderColor,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),
