@@ -642,6 +642,50 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
 
   String _formatTimeLabel(int hour) => '${hour.toString().padLeft(2, '0')}:00';
 
+  Widget _buildTimeHeaderLabel(String label, {double? width}) {
+    const TextStyle style = TextStyle(fontWeight: FontWeight.w600, fontSize: 12);
+    final List<String> parts = label.split(':');
+    final String leading = parts.isNotEmpty ? parts.first : label;
+    final String trailing = parts.length > 1 ? parts[1] : '';
+
+    final TextPainter colonPainter = TextPainter(
+      text: const TextSpan(text: ':', style: style),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    final double colonHalfWidth = colonPainter.width / 2;
+
+    return SizedBox(
+      width: width ?? _scheduleHourWidth,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: <Widget>[
+          Positioned.fill(
+            child: Align(
+              alignment: Alignment.center,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  Text(leading, style: style),
+                  Text(':', style: style.copyWith(color: Colors.transparent)),
+                  Text(trailing, style: style),
+                ],
+              ),
+            ),
+          ),
+          Positioned(
+            left: -colonHalfWidth,
+            top: 0,
+            bottom: 0,
+            child: Align(
+              alignment: Alignment.center,
+              child: Text(':', style: style),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   String _formatSlotRange(DateTime dayDate, int startSlot, int durationSlots) {
     final DateTime start = _blockStartDateTime(dayDate, startSlot);
     final DateTime end = _blockEndDateTime(dayDate, startSlot, durationSlots);
@@ -852,6 +896,34 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
     return;
   }
 
+  if (type == ScheduleBlockType.unavailable) {
+    final DateTime normalizedDay = _normalizeDate(_currentWeekDates[dayIndex]);
+    if (!_canPlaceBlock(normalizedDay, startSlot, durationSlots)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('ช่วงเวลานี้ถูกใช้ไปแล้ว')),
+      );
+      return;
+    }
+
+    final ScheduleBlock newBlock = ScheduleBlock(
+      id: _nextBlockId++,
+      dayIndex: _dayIndexForDate(normalizedDay),
+      startSlot: startSlot,
+      durationSlots: durationSlots,
+      type: ScheduleBlockType.unavailable,
+      note: null,
+      date: normalizedDay,
+      isRecurring: false,
+    );
+
+    setState(() {
+      _scheduleBlocks = [..._scheduleBlocks, newBlock];
+      _legacyScheduleNote = null;
+      _sortBlocks();
+    });
+    return;
+  }
+
   await Future.delayed(const Duration(milliseconds: 250));
 
   // ✅ เปิด modal เก็บรายละเอียดบล็อก
@@ -961,6 +1033,27 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
       return;
     }
 
+    if (type == ScheduleBlockType.unavailable) {
+      final DateTime normalizedDay = _normalizeDate(dayDate);
+      final ScheduleBlock newBlock = ScheduleBlock(
+        id: _nextBlockId++,
+        dayIndex: _dayIndexForDate(normalizedDay),
+        startSlot: slot,
+        durationSlots: 1,
+        type: ScheduleBlockType.unavailable,
+        note: null,
+        date: normalizedDay,
+        isRecurring: false,
+      );
+
+      setState(() {
+        _scheduleBlocks = <ScheduleBlock>[..._scheduleBlocks, newBlock];
+        _legacyScheduleNote = null;
+        _sortBlocks();
+      });
+      return;
+    }
+
     final _BlockDetails? detailsResult = await _collectBlockDetails(
       type: type,
       dayIndex: dayIndex,
@@ -1008,7 +1101,13 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
           final Offset topLeft = overlayBox.globalToLocal(anchorRect.topLeft);
           final Offset bottomRight = overlayBox.globalToLocal(anchorRect.bottomRight);
           final Rect localRect = Rect.fromPoints(topLeft, bottomRight);
-          menuPosition = RelativeRect.fromRect(localRect, Offset.zero & overlayBox.size);
+          final Offset center = localRect.center;
+          menuPosition = RelativeRect.fromLTRB(
+            center.dx,
+            center.dy,
+            overlayBox.size.width - center.dx,
+            overlayBox.size.height - center.dy,
+          );
         } else {
           final Offset resolvedPosition = position ?? overlayBox.size.center(Offset.zero);
           menuPosition = RelativeRect.fromLTRB(
@@ -1861,17 +1960,7 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
                           Row(
                             children: <Widget>[
                               ...hourLabels.map(
-                                (int hour) => SizedBox(
-                                  width: _scheduleHourWidth,
-                                  child: Align(
-                                    alignment: Alignment.center,
-                                    child: Text(
-                                      _formatTimeLabel(hour),
-                                      textAlign: TextAlign.center,
-                                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12),
-                                    ),
-                                  ),
-                                ),
+                                (int hour) => _buildTimeHeaderLabel(_formatTimeLabel(hour)),
                               ),
                             ],
                           ),
@@ -1879,13 +1968,9 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
                             right: 0,
                             child: SizedBox(
                               width: _scheduleHourWidth / 2,
-                              child: Align(
-                                alignment: Alignment.center,
-                                child: Text(
-                                  _formatTimeLabel(_scheduleEndHour),
-                                  textAlign: TextAlign.center,
-                                  style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12),
-                                ),
+                              child: _buildTimeHeaderLabel(
+                                _formatTimeLabel(_scheduleEndHour),
+                                width: _scheduleHourWidth / 2,
                               ),
                             ),
                           ),
@@ -1931,11 +2016,14 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
             width: _dayLabelWidth,
             child: Align(
               alignment: Alignment.centerRight,
-              child: Text(
-                _dayLabels[safeDayIndex],
-                style: const TextStyle(fontWeight: FontWeight.w600),
-                maxLines: 1,
-                textAlign: TextAlign.right,
+              child: Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: Text(
+                  _dayLabels[safeDayIndex],
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                  maxLines: 1,
+                  textAlign: TextAlign.right,
+                ),
               ),
             ),
           ),
@@ -2020,6 +2108,48 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
 
                         if (type == null) {
                           setState(() {
+                            _isRangeSelecting = false;
+                            _currentSelectionRange = null;
+                            _rangeSelectionAnchorSlot = null;
+                            _rangeSelectionDayIndex = null;
+                            _rangeSelectionSelectedDate = null;
+                          });
+                          return;
+                        }
+
+                        final DateTime normalizedDay =
+                            _normalizeDate(_currentWeekDates[dayIndexFinal]);
+
+                        if (type == ScheduleBlockType.unavailable) {
+                          if (!_canPlaceBlock(normalizedDay, startSlot, durationSlots)) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('ช่วงเวลานี้ถูกใช้ไปแล้ว')),
+                            );
+                            setState(() {
+                              _isRangeSelecting = false;
+                              _currentSelectionRange = null;
+                              _rangeSelectionAnchorSlot = null;
+                              _rangeSelectionDayIndex = null;
+                              _rangeSelectionSelectedDate = null;
+                            });
+                            return;
+                          }
+
+                          final ScheduleBlock newBlock = ScheduleBlock(
+                            id: _nextBlockId++,
+                            dayIndex: _dayIndexForDate(normalizedDay),
+                            startSlot: startSlot,
+                            durationSlots: durationSlots,
+                            type: ScheduleBlockType.unavailable,
+                            note: null,
+                            date: normalizedDay,
+                            isRecurring: false,
+                          );
+
+                          setState(() {
+                            _scheduleBlocks = [..._scheduleBlocks, newBlock];
+                            _legacyScheduleNote = null;
+                            _sortBlocks();
                             _isRangeSelecting = false;
                             _currentSelectionRange = null;
                             _rangeSelectionAnchorSlot = null;
