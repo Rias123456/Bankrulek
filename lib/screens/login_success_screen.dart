@@ -1070,6 +1070,7 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
     int? initialDuration,
     String? initialNote,
     bool initialRecurring = false,
+    bool allowDelete = false,
   }) async {
     final int durationSlots = initialDuration ?? 1;
     final TextEditingController noteController = TextEditingController(text: initialNote ?? '');
@@ -1107,6 +1108,26 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
                     const SizedBox(height: 24),
                     Row(
                       children: <Widget>[
+                        if (allowDelete)
+                          TextButton(
+                            onPressed: () {
+                              Navigator.of(dialogContext).pop(
+                                _BlockDetails(
+                                  dayIndex: dayIndex,
+                                  dayDate: _normalizeDate(dayDate),
+                                  durationSlots: durationSlots,
+                                  note: null,
+                                  isRecurring: initialRecurring,
+                                  shouldDelete: true,
+                                ),
+                              );
+                            },
+                            style: TextButton.styleFrom(
+                              foregroundColor: Colors.red.shade400,
+                            ),
+                            child: const Text('ลบ'),
+                          ),
+                        if (allowDelete) const SizedBox(width: 8),
                         TextButton(
                           onPressed: () => Navigator.of(dialogContext).pop(),
                           child: const Text('ยกเลิก'),
@@ -1247,9 +1268,18 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
       initialDuration: block.durationSlots,
       initialNote: block.note,
       initialRecurring: block.isRecurring,
+      allowDelete: true,
     );
 
     if (!mounted || details == null) {
+      return;
+    }
+
+    if (details.shouldDelete) {
+      setState(() {
+        _scheduleBlocks =
+            _scheduleBlocks.where((ScheduleBlock current) => current.id != block.id).toList();
+      });
       return;
     }
 
@@ -2058,9 +2088,11 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
     final Color backgroundColor = isTeaching ? const Color(0xFFFFE4E1) : Colors.grey.shade300;
     final Color textColor = isTeaching ? Colors.grey.shade700 : Colors.grey.shade800;
     final Color borderColor = isTeaching ? const Color(0xFFB71C1C) : Colors.grey.shade500;
-    final String label = block.note != null && block.note!.isNotEmpty
-        ? block.note!
-        : (isTeaching ? 'สอน' : 'ไม่ว่าง');
+    final String? effectiveNote =
+        block.note != null && block.note!.trim().isNotEmpty ? block.note!.trim() : null;
+    final String? label = effectiveNote ?? (isTeaching ? 'สอน' : null);
+    final String tooltipLabel = effectiveNote ?? (isTeaching ? 'สอน' : '');
+    final bool hasLabel = label != null && label.isNotEmpty;
     final bool isRecurring = block.isRecurring && isTeaching;
     final bool isActive = _draggingBlockId == block.id;
     final bool isLifted = isActive && _isDragPrimed;
@@ -2084,7 +2116,7 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
         onPanEnd: (_) => _endDraggingBlock(),
         child: Tooltip(
           message:
-              '${_formatDayWithDateFromDate(dayDate)} ${_formatSlotRange(dayDate, block.startSlot, block.durationSlots)}\n$label',
+              '${_formatDayWithDateFromDate(dayDate)} ${_formatSlotRange(dayDate, block.startSlot, block.durationSlots)}\n$tooltipLabel',
           waitDuration: const Duration(milliseconds: 400),
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 150),
@@ -2103,58 +2135,58 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
                     ]
                   : const <BoxShadow>[],
             ),
-padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-child: Column(
-  crossAxisAlignment: CrossAxisAlignment.start,
-  children: <Widget>[
-    // 🕒 เวลา + badge "ประจำ" อยู่บรรทัดเดียวกัน
-    Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          _formatSlotRange(dayDate, block.startSlot, block.durationSlots),
-          style: TextStyle(
-            fontSize: 11,
-            color: textColor.withOpacity(0.85),
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        if (isRecurring)
-          Padding(
-            padding: const EdgeInsets.only(left: 6),
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: borderColor.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                child: Text(
-                  'ประจำ',
-                  style: TextStyle(
-                    color: borderColor,
-                    fontSize: 10,
-                    fontWeight: FontWeight.w600,
-                  ),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      _formatSlotRange(dayDate, block.startSlot, block.durationSlots),
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: textColor.withOpacity(0.85),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    if (isRecurring)
+                      Padding(
+                        padding: const EdgeInsets.only(left: 6),
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: borderColor.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            child: Text(
+                              'ประจำ',
+                              style: TextStyle(
+                                color: borderColor,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
-              ),
-            ),
-          ),
-      ],
-    ),
-    const SizedBox(height: 4),
-
-                Expanded(
-                  child: Text(
-                    label,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: textColor,
-                      fontWeight: FontWeight.w600,
+                if (hasLabel) ...<Widget>[
+                  const SizedBox(height: 4),
+                  Expanded(
+                    child: Text(
+                      label!,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: textColor,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ),
-                ),
+                ],
               ],
             ),
           ),
@@ -2323,6 +2355,7 @@ class _BlockDetails {
     required this.durationSlots,
     this.note,
     this.isRecurring = false,
+    this.shouldDelete = false,
   });
 
   final int dayIndex;
@@ -2330,6 +2363,7 @@ class _BlockDetails {
   final int durationSlots;
   final String? note;
   final bool isRecurring;
+  final bool shouldDelete;
 }
 
 class _SelectionRange {
