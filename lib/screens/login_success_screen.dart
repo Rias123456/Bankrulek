@@ -1060,44 +1060,7 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
       }
     }
 
-    return showDialog<ScheduleBlockType>(
-      context: context,
-      builder: (BuildContext dialogContext) {
-        return AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          title: const Text('เลือกสถานะตาราง'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: <Widget>[
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFFFE4E1),
-                  foregroundColor: Colors.grey.shade600,
-                  textStyle: const TextStyle(fontWeight: FontWeight.w600),
-                  elevation: 0,
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                ),
-                onPressed: () =>
-                    Navigator.of(dialogContext).pop(ScheduleBlockType.teaching),
-                child: const Text('สอน'),
-              ),
-              const SizedBox(height: 8),
-              OutlinedButton(
-                style: OutlinedButton.styleFrom(
-                  backgroundColor: Colors.grey.shade300,
-                  foregroundColor: Colors.grey.shade800,
-                  textStyle: const TextStyle(fontWeight: FontWeight.w600),
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                ),
-                onPressed: () => Navigator.of(dialogContext).pop(ScheduleBlockType.unavailable),
-                child: const Text('ไม่ว่าง'),
-              ),
-            ],
-          ),
-        );
-      },
-    );
+    return null;
   }
 
   Future<_BlockDetails?> _collectBlockDetails({
@@ -1924,9 +1887,9 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
             child: Align(
               alignment: Alignment.centerLeft,
               child: Text(
-                '${_dayLabels[safeDayIndex]}\n${_formatDateLabel(dayDate)}',
+                _dayLabels[safeDayIndex],
                 style: const TextStyle(fontWeight: FontWeight.w600),
-                maxLines: 2,
+                maxLines: 1,
               ),
             ),
           ),
