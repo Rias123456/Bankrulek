@@ -194,6 +194,7 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
   List<ScheduleBlock> _scheduleBlocks = <ScheduleBlock>[];
   int _nextBlockId = 1;
   String? _legacyScheduleNote;
+  Offset? _lastInteractionPosition;
   int? _draggingBlockId;
   double _dragAccumulatedDx = 0;
   double _dragAccumulatedDy = 0;
@@ -719,6 +720,7 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
     _pendingRangeDayIndex = dayIndex;
     _pendingRangeLocalOffset = details.localPosition;
     _pendingRangeGlobalOffset = details.globalPosition;
+    _lastInteractionPosition = details.globalPosition;
     _rangeSelectionPrimed = true;
   }
 
@@ -727,6 +729,7 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
     _pendingRangeDayIndex ??= dayIndex;
     _pendingRangeLocalOffset ??= details.localPosition;
     _pendingRangeGlobalOffset ??= details.globalPosition;
+    _lastInteractionPosition = details.globalPosition;
   }
 
   void _handleRangePanUpdate(int dayIndex, DragUpdateDetails details) {
@@ -795,6 +798,7 @@ void _startRangeSelection(int dayIndex, Offset localPosition, Offset globalPosit
     _rangeSelectionSelectedDate = dayDate;
     _rangeSelectionPrimed = true; // ✅ ตั้งให้แน่ชัด
   });
+  _lastInteractionPosition = globalPosition;
 }
 
 
@@ -835,6 +839,7 @@ void _startRangeSelection(int dayIndex, Offset localPosition, Offset globalPosit
         _rangeSelectionSelectedDate = targetDayDate;
       });
     }
+    _lastInteractionPosition = details.globalPosition;
   }
 
  /// ฟังก์ชัน: จบการเลือกช่วงเวลา แล้วเปิด modal ให้เลือกประเภท block
@@ -867,7 +872,8 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
   await Future.delayed(const Duration(milliseconds: 150));
 
   // ✅ เปิด modal เลือกประเภท block (สอน / ไม่สอน)
-  final ScheduleBlockType? type = await _showBlockTypeChooser();
+  final ScheduleBlockType? type =
+      await _showBlockTypeChooser(position: _lastInteractionPosition);
   if (!mounted || type == null) {
     debugPrint('🚫 ยกเลิกเลือกประเภท block');
     return;
@@ -941,56 +947,76 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
     _clearPendingRangeSelection();
   }
 
-  Future<void> _handleGridTap(int dayIndex, double dx) async {
-    final int slot = _slotFromDx(dx);
+  Future<void> _handleGridTap(int dayIndex, Offset localPosition, Offset globalPosition) async {
+    await _handleEmptySpaceTap(
+      dayIndex: dayIndex,
+      localPosition: localPosition,
+      globalPosition: globalPosition,
+    );
+  }
+
+  Future<void> _handleEmptySpaceTap({
+    required int dayIndex,
+    required Offset localPosition,
+    required Offset globalPosition,
+  }) async {
+    final int slot = _slotFromDx(localPosition.dx);
     final DateTime dayDate = _currentWeekDates[_clampInt(dayIndex, 0, _dayLabels.length - 1)];
+    final DateTime normalizedDate = _normalizeDate(dayDate);
+    final bool hasExistingBlock = _scheduleBlocks.any((ScheduleBlock block) {
+      if (!_blockOccursOnDate(block, normalizedDate, dayIndex)) {
+        return false;
+      }
+      final int start = block.startSlot;
+      final int end = block.startSlot + block.durationSlots;
+      return slot >= start && slot < end;
+    });
+    if (hasExistingBlock) {
+      return;
+    }
     if (!_canPlaceBlock(dayDate, slot, 1)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('ช่วงเวลานี้ถูกใช้ไปแล้ว')),
-      );
       return;
     }
     final int maxDuration = _calculateMaxDuration(dayDate, slot, null);
     if (maxDuration <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('ช่วงเวลานี้ถูกใช้ไปแล้ว')),
-      );
       return;
     }
-    final ScheduleBlockType? type = await _showBlockTypeChooser();
-    if (!mounted) {
+
+    _lastInteractionPosition = globalPosition;
+    final ScheduleBlockType? type = await _showBlockTypeChooser(position: globalPosition);
+    if (!mounted || type == null) {
       return;
     }
-    if (type == null) {
-      return;
-    }
-    final _BlockDetails? details = await _collectBlockDetails(
+
+    final _BlockDetails? detailsResult = await _collectBlockDetails(
       type: type,
       dayIndex: dayIndex,
       dayDate: dayDate,
+      initialDuration: 1,
     );
-    if (!mounted) {
+
+    if (!mounted || detailsResult == null) {
       return;
     }
-    if (details == null) {
-      return;
-    }
-    if (!_canPlaceBlock(details.dayDate, slot, details.durationSlots)) {
+
+    if (!_canPlaceBlock(detailsResult.dayDate, slot, detailsResult.durationSlots)) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('ช่วงเวลานี้ถูกใช้ไปแล้ว')),
       );
       return;
     }
+
     final ScheduleBlock newBlock = ScheduleBlock(
       id: _nextBlockId++,
-      dayIndex: _dayIndexForDate(details.dayDate),
+      dayIndex: _dayIndexForDate(detailsResult.dayDate),
       startSlot: slot,
-      durationSlots: details.durationSlots,
+      durationSlots: detailsResult.durationSlots,
       type: type,
-      note: details.note,
-      date: _normalizeDate(details.dayDate),
-      isRecurring: details.isRecurring,
+      note: detailsResult.note,
+      date: _normalizeDate(detailsResult.dayDate),
+      isRecurring: detailsResult.isRecurring,
     );
+
     setState(() {
       _scheduleBlocks = <ScheduleBlock>[..._scheduleBlocks, newBlock];
       _legacyScheduleNote = null;
@@ -998,75 +1024,63 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
     });
   }
 
-  Future<ScheduleBlockType?> _showBlockTypeChooser() {
-    ScheduleBlockType selectedType = ScheduleBlockType.teaching;
-    return showModalBottomSheet<ScheduleBlockType>(
+  Future<ScheduleBlockType?> _showBlockTypeChooser({Offset? position}) async {
+    final OverlayState? overlay = Overlay.of(context);
+    if (overlay != null) {
+      final RenderObject? overlayRenderObject = overlay.context.findRenderObject();
+      if (overlayRenderObject is RenderBox) {
+        final RenderBox overlayBox = overlayRenderObject;
+        final Offset resolvedPosition = position ?? overlayBox.size.center(Offset.zero);
+        final RelativeRect menuPosition = RelativeRect.fromLTRB(
+          resolvedPosition.dx,
+          resolvedPosition.dy,
+          overlayBox.size.width - resolvedPosition.dx,
+          overlayBox.size.height - resolvedPosition.dy,
+        );
+
+        final ScheduleBlockType? selection = await showMenu<ScheduleBlockType>(
+          context: context,
+          position: menuPosition,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          items: const <PopupMenuEntry<ScheduleBlockType>>[
+            PopupMenuItem<ScheduleBlockType>(
+              value: ScheduleBlockType.teaching,
+              child: Text('สอน'),
+            ),
+            PopupMenuItem<ScheduleBlockType>(
+              value: ScheduleBlockType.unavailable,
+              child: Text('ไม่สอน'),
+            ),
+          ],
+        );
+        if (selection != null) {
+          return selection;
+        }
+      }
+    }
+
+    return showDialog<ScheduleBlockType>(
       context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (BuildContext context) {
-        return StatefulBuilder(
-          builder: (BuildContext context, StateSetter setState) {
-            return SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: <Widget>[
-                    Center(
-                      child: Container(
-                        width: 40,
-                        height: 4,
-                        decoration: BoxDecoration(
-                          color: Colors.grey.shade400,
-                          borderRadius: BorderRadius.circular(2),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    DropdownButtonFormField<ScheduleBlockType>(
-                      value: selectedType,
-                      decoration: const InputDecoration(
-                        labelText: 'ประเภทบล็อค',
-                      ),
-                      items: const <DropdownMenuItem<ScheduleBlockType>>[
-                        DropdownMenuItem<ScheduleBlockType>(
-                          value: ScheduleBlockType.teaching,
-                          child: Text('สอน'),
-                        ),
-                        DropdownMenuItem<ScheduleBlockType>(
-                          value: ScheduleBlockType.unavailable,
-                          child: Text('ไม่สอน'),
-                        ),
-                      ],
-                      onChanged: (ScheduleBlockType? value) {
-                        if (value == null) {
-                          return;
-                        }
-                        setState(() => selectedType = value);
-                      },
-                    ),
-                    const SizedBox(height: 24),
-                    Row(
-                      children: <Widget>[
-                        TextButton(
-                          onPressed: () => Navigator.pop(context),
-                          child: const Text('ยกเลิก'),
-                        ),
-                        const Spacer(),
-                        ElevatedButton(
-                          onPressed: () => Navigator.pop(context, selectedType),
-                          child: const Text('ยืนยัน'),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: const Text('เลือกสถานะตาราง'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              ElevatedButton(
+                onPressed: () =>
+                    Navigator.of(dialogContext).pop(ScheduleBlockType.teaching),
+                child: const Text('สอน'),
               ),
-            );
-          },
+              const SizedBox(height: 8),
+              OutlinedButton(
+                onPressed: () => Navigator.of(dialogContext).pop(ScheduleBlockType.unavailable),
+                child: const Text('ไม่สอน'),
+              ),
+            ],
+          ),
         );
       },
     );
@@ -1083,72 +1097,64 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
     final int durationSlots = initialDuration ?? 1;
     final TextEditingController noteController = TextEditingController(text: initialNote ?? '');
 
-    final _BlockDetails? result = await showModalBottomSheet<_BlockDetails>(
+    final _BlockDetails? result = await showDialog<_BlockDetails>(
       context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (BuildContext sheetContext) {
-        return SafeArea(
-          child: Padding(
+      barrierDismissible: true,
+      builder: (BuildContext dialogContext) {
+        return Dialog( 
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+          insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+          child: AnimatedPadding(
+            duration: const Duration(milliseconds: 150),
+            curve: Curves.easeOut,
             padding: EdgeInsets.only(
-              left: 20,
-              right: 20,
-              top: 16,
-              bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 16,
+              bottom: MediaQuery.of(dialogContext).viewInsets.bottom,
             ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Center(
-                  child: Container(
-                    width: 40,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade400,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: noteController,
-                  autofocus: true,
-                  textCapitalization: TextCapitalization.sentences,
-                  decoration: const InputDecoration(
-                    labelText: 'รายละเอียด',
-                  ),
-                  maxLines: null,
-                ),
-                const SizedBox(height: 24),
-                Row(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 400),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: <Widget>[
-                    TextButton(
-                      onPressed: () => Navigator.pop(sheetContext),
-                      child: const Text('ยกเลิก'),
+                    TextField(
+                      controller: noteController,
+                      autofocus: true,
+                      textCapitalization: TextCapitalization.sentences,
+                      decoration: const InputDecoration(
+                        labelText: 'รายละเอียด',
+                      ),
+                      maxLines: null,
                     ),
-                    const Spacer(),
-                    ElevatedButton(
-                      onPressed: () {
-                        final String trimmedNote = noteController.text.trim();
-                        Navigator.pop(
-                          sheetContext,
-                          _BlockDetails(
-                            dayIndex: dayIndex,
-                            dayDate: _normalizeDate(dayDate),
-                            durationSlots: durationSlots,
-                            note: trimmedNote.isEmpty ? null : trimmedNote,
-                            isRecurring: initialRecurring,
-                          ),
-                        );
-                      },
-                      child: const Text('ยืนยัน'),
+                    const SizedBox(height: 24),
+                    Row(
+                      children: <Widget>[
+                        TextButton(
+                          onPressed: () => Navigator.of(dialogContext).pop(),
+                          child: const Text('ยกเลิก'),
+                        ),
+                        const Spacer(),
+                        ElevatedButton(
+                          onPressed: () {
+                            final String trimmedNote = noteController.text.trim();
+                            Navigator.of(dialogContext).pop(
+                              _BlockDetails(
+                                dayIndex: dayIndex,
+                                dayDate: _normalizeDate(dayDate),
+                                durationSlots: durationSlots,
+                                note: trimmedNote.isEmpty ? null : trimmedNote,
+                                isRecurring: initialRecurring,
+                              ),
+                            );
+                          },
+                          child: const Text('ยืนยัน'),
+                        ),
+                      ],
                     ),
                   ],
                 ),
-              ],
+              ),
             ),
           ),
         );
@@ -1818,37 +1824,12 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
   final double gridWidth = (_scheduleEndHour - _scheduleStartHour) * _scheduleHourWidth;
   final List<int> hourLabels =
       List<int>.generate(_scheduleEndHour - _scheduleStartHour, (int index) => _scheduleStartHour + index);
-  final double scrollStep = _scheduleHourWidth * 2;
 
   return Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: <Widget>[
-      Align(
-        alignment: Alignment.centerRight,
-        child: Wrap(
-          spacing: 8,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: <Widget>[
-            Text(
-              'เลื่อนตารางเวลา',
-              style: TextStyle(color: Colors.grey.shade600, fontSize: 12, fontWeight: FontWeight.w600),
-            ),
-            IconButton(
-              onPressed: _canScrollBackward ? () => _scrollScheduleBy(-scrollStep) : null,
-              icon: const Icon(Icons.chevron_left),
-              tooltip: 'เลื่อนไปช่วงเวลาก่อนหน้า',
-            ),
-            IconButton(
-              onPressed: _canScrollForward ? () => _scrollScheduleBy(scrollStep) : null,
-              icon: const Icon(Icons.chevron_right),
-              tooltip: 'เลื่อนไปช่วงเวลาถัดไป',
-            ),
-          ],
-        ),
-      ),
       const SizedBox(height: 8),
 
-      // ✅ แก้ตรงนี้
       ClipRect(
         child: GestureDetector(
           onHorizontalDragUpdate: (details) {
@@ -1879,7 +1860,8 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
                               ...hourLabels.map(
                                 (int hour) => SizedBox(
                                   width: _scheduleHourWidth,
-                                  child: Center(
+                                  child: Align(
+                                    alignment: Alignment.centerLeft,
                                     child: Text(
                                       _formatTimeLabel(hour),
                                       style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12),
@@ -1951,93 +1933,121 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
             ),
           ),
           SizedBox(
-           width: gridWidth,
-child: RawGestureDetector(
-  gestures: {
-    LongPressGestureRecognizer:
-        GestureRecognizerFactoryWithHandlers<LongPressGestureRecognizer>(
-      () => LongPressGestureRecognizer(duration: const Duration(milliseconds: 200)),
-      (LongPressGestureRecognizer instance) {
-        instance
-          ..onLongPressStart = (details) {
-            debugPrint('🕐 กดค้างเริ่ม (0.5วิ) | day=$dayIndex');
-            _isRangeSelecting = true;
+            width: gridWidth,
+            child: RawGestureDetector(
+              gestures: {
+                LongPressGestureRecognizer:
+                    GestureRecognizerFactoryWithHandlers<LongPressGestureRecognizer>(
+                  () => LongPressGestureRecognizer(duration: const Duration(milliseconds: 200)),
+                  (LongPressGestureRecognizer instance) {
+                    instance
+                      ..onLongPressStart = (details) {
+                        debugPrint('🕐 กดค้างเริ่ม (0.5วิ) | day=$dayIndex');
+                        _isRangeSelecting = true;
 
-            final int slot = _slotFromDx(details.localPosition.dx);
-            final DateTime dayDate = _currentWeekDates[_clampInt(dayIndex, 0, _dayLabels.length - 1)];
+                        final int slot = _slotFromDx(details.localPosition.dx);
+                        final DateTime dayDate =
+                            _currentWeekDates[_clampInt(dayIndex, 0, _dayLabels.length - 1)];
 
-            setState(() {
-              _rangeSelectionDayIndex = dayIndex;
-              _rangeSelectionAnchorSlot = slot;
-              _currentSelectionRange = _SelectionRange(startSlot: slot, durationSlots: 1);
-              _rangeSelectionSelectedDate = dayDate;
-            });
+                        setState(() {
+                          _rangeSelectionDayIndex = dayIndex;
+                          _rangeSelectionAnchorSlot = slot;
+                          _currentSelectionRange =
+                              _SelectionRange(startSlot: slot, durationSlots: 1);
+                          _rangeSelectionSelectedDate = dayDate;
+                        });
 
-            HapticFeedback.mediumImpact();
-          }
-          ..onLongPressMoveUpdate = (details) {
-            if (!_isRangeSelecting || _rangeSelectionAnchorSlot == null) return;
+                        HapticFeedback.mediumImpact();
+                        _lastInteractionPosition = details.globalPosition;
+                      }
+                      ..onLongPressMoveUpdate = (details) {
+                        if (!_isRangeSelecting || _rangeSelectionAnchorSlot == null) {
+                          return;
+                        }
 
-            final int targetSlot = _slotFromDx(details.localPosition.dx);
-            final int anchor = _rangeSelectionAnchorSlot!;
-            final int start = math.min(anchor, targetSlot);
-            final int duration = (anchor - targetSlot).abs() + 1;
+                        final int targetSlot = _slotFromDx(details.localPosition.dx);
+                        final int anchor = _rangeSelectionAnchorSlot!;
+                        final int start = math.min(anchor, targetSlot);
+                        final int duration = (anchor - targetSlot).abs() + 1;
 
-            setState(() {
-              _currentSelectionRange =
-                  _SelectionRange(startSlot: start, durationSlots: duration);
-            });
-          }
-          ..onLongPressEnd = (details) async {
-            if (!_isRangeSelecting || _currentSelectionRange == null) return;
+                        setState(() {
+                          _currentSelectionRange =
+                              _SelectionRange(startSlot: start, durationSlots: duration);
+                        });
+                        _lastInteractionPosition = details.globalPosition;
+                      }
+                      ..onLongPressEnd = (details) async {
+                        if (!_isRangeSelecting || _currentSelectionRange == null) {
+                          return;
+                        }
 
-            final int dayIndexFinal = _rangeSelectionDayIndex ?? dayIndex;
-            final int startSlot = _currentSelectionRange!.startSlot;
-            final int durationSlots = _currentSelectionRange!.durationSlots;
+                        final int dayIndexFinal = _rangeSelectionDayIndex ?? dayIndex;
+                        final int startSlot = _currentSelectionRange!.startSlot;
+                        final int durationSlots = _currentSelectionRange!.durationSlots;
 
-            setState(() {
-              _isRangeSelecting = false;
-            });
+                        setState(() {
+                          _isRangeSelecting = false;
+                        });
 
-            final ScheduleBlockType? type = await _showBlockTypeChooser();
-            if (type == null) return;
+                        _lastInteractionPosition = details.globalPosition;
+                        final ScheduleBlockType? type =
+                            await _showBlockTypeChooser(position: details.globalPosition);
+                        if (type == null) {
+                          return;
+                        }
 
-            final _BlockDetails? detailsResult = await _collectBlockDetails(
-              type: type,
-              dayIndex: dayIndexFinal,
-              dayDate: _currentWeekDates[dayIndexFinal],
-              initialDuration: durationSlots,
-            );
+                        final _BlockDetails? detailsResult = await _collectBlockDetails(
+                          type: type,
+                          dayIndex: dayIndexFinal,
+                          dayDate: _currentWeekDates[dayIndexFinal],
+                          initialDuration: durationSlots,
+                        );
 
-            if (detailsResult == null) return;
+                        if (detailsResult == null) {
+                          return;
+                        }
 
-            final ScheduleBlock newBlock = ScheduleBlock(
-              id: _nextBlockId++,
-              dayIndex: dayIndexFinal,
-              startSlot: startSlot,
-              durationSlots: detailsResult.durationSlots,
-              type: type,
-              note: detailsResult.note,
-              date: _normalizeDate(detailsResult.dayDate),
-              isRecurring: detailsResult.isRecurring,
-            );
+                        final ScheduleBlock newBlock = ScheduleBlock(
+                          id: _nextBlockId++,
+                          dayIndex: dayIndexFinal,
+                          startSlot: startSlot,
+                          durationSlots: detailsResult.durationSlots,
+                          type: type,
+                          note: detailsResult.note,
+                          date: _normalizeDate(detailsResult.dayDate),
+                          isRecurring: detailsResult.isRecurring,
+                        );
 
-            setState(() {
-              _scheduleBlocks = [..._scheduleBlocks, newBlock];
-              _sortBlocks();
-            });
+                        setState(() {
+                          _scheduleBlocks = [..._scheduleBlocks, newBlock];
+                          _sortBlocks();
+                        });
 
-            debugPrint('✅ เพิ่ม block สำเร็จ slot=$startSlot dur=$durationSlots');
-          }
-          ..onLongPressCancel = () {
-            debugPrint('🚫 ยกเลิก long press');
-            setState(() => _isRangeSelecting = false);
-          };
-      },
-    ),
-  },
-  behavior: HitTestBehavior.opaque,
-  child: Stack(
+                        debugPrint('✅ เพิ่ม block สำเร็จ slot=$startSlot dur=$durationSlots');
+                      }
+                      ..onLongPressCancel = () {
+                        debugPrint('🚫 ยกเลิก long press');
+                        setState(() => _isRangeSelecting = false);
+                        _lastInteractionPosition = null;
+                      };
+                  },
+                ),
+                TapGestureRecognizer:
+                    GestureRecognizerFactoryWithHandlers<TapGestureRecognizer>(
+                  () => TapGestureRecognizer(),
+                  (TapGestureRecognizer instance) {
+                    instance.onTapUp = (TapUpDetails details) {
+                      _handleEmptySpaceTap(
+                        dayIndex: dayIndex,
+                        localPosition: details.localPosition,
+                        globalPosition: details.globalPosition,
+                      );
+                    };
+                  },
+                ),
+              },
+              behavior: HitTestBehavior.opaque,
+              child: Stack(
     children: [
       Positioned.fill(
         child: CustomPaint(
