@@ -226,6 +226,8 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
   static const double _dayLabelWidth = 96;
   static const double _blockVerticalInset = 0;
   static const double _rangeSelectionActivationThreshold = 8;
+  static const double _blockTypeMenuMinWidth = 152;
+  static const double _blockTypeMenuMinHeight = 112;
   static const String _scheduleSerializationPrefix = 'SCHEDULE_V1:';
 
   int get _slotsPerHour => math.max(1, 60 ~/ _minutesPerSlot);
@@ -262,6 +264,22 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
       (rect.left + rect.right) / 2,
       (rect.top + rect.bottom) / 2,
     );
+  }
+
+  RelativeRect _centeredMenuPosition(
+    RenderBox overlayBox,
+    Offset center,
+    double width,
+    double height,
+  ) {
+    final Size overlaySize = overlayBox.size;
+    final double maxLeft = math.max(overlaySize.width - width, 0);
+    final double maxTop = math.max(overlaySize.height - height, 0);
+    final double left = (center.dx - width / 2).clamp(0.0, maxLeft) as double;
+    final double top = (center.dy - height / 2).clamp(0.0, maxTop) as double;
+    final double right = math.max(overlaySize.width - left - width, 0);
+    final double bottom = math.max(overlaySize.height - top - height, 0);
+    return RelativeRect.fromLTRB(left, top, right, bottom);
   }
 
   List<DateTime> get _currentWeekDates => List<DateTime>.generate(
@@ -875,12 +893,15 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
   FocusManager.instance.primaryFocus?.unfocus();
   await Future.delayed(const Duration(milliseconds: 150));
 
-  final Offset? popupCenter =
+  final Rect? popupRect =
+      _highlightRectForSelection(dayIndex, startSlot, durationSlots);
+  final Offset? popupCenter = popupRect?.center ??
       _highlightCenterForSelection(dayIndex, startSlot, durationSlots);
 
   // ✅ เปิด modal เลือกประเภท block (สอน / ไม่ว่าง)
   final ScheduleBlockType? type = await _showBlockTypeChooser(
     position: popupCenter ?? _lastInteractionPosition,
+    anchorRect: popupRect,
   );
 if (!mounted || type == null) {
   debugPrint('🚫 ยกเลิกเลือกประเภท block');
@@ -1014,7 +1035,12 @@ if (!_canPlaceBlock(detailsResult.dayDate, startSlot, detailsResult.durationSlot
     }
 
     _lastInteractionPosition = globalPosition;
-    final ScheduleBlockType? type = await _showBlockTypeChooser(position: globalPosition);
+    final Rect? popupRect = _highlightRectForSelection(dayIndex, slot, 1);
+    final Offset? popupCenter = popupRect?.center;
+    final ScheduleBlockType? type = await _showBlockTypeChooser(
+      position: popupCenter ?? globalPosition,
+      anchorRect: popupRect,
+    );
     if (!mounted || type == null) {
       return;
     }
@@ -1061,25 +1087,42 @@ if (!_canPlaceBlock(detailsResult.dayDate, startSlot, detailsResult.durationSlot
       final RenderObject? overlayRenderObject = overlay.context.findRenderObject();
       if (overlayRenderObject is RenderBox) {
         final RenderBox overlayBox = overlayRenderObject;
-        RelativeRect menuPosition;
+        Rect? localAnchorRect;
         if (anchorRect != null) {
           final Offset topLeft = overlayBox.globalToLocal(anchorRect.topLeft);
           final Offset bottomRight = overlayBox.globalToLocal(anchorRect.bottomRight);
-          final Rect localRect = Rect.fromPoints(topLeft, bottomRight);
-          menuPosition = RelativeRect.fromRect(localRect, Offset.zero & overlayBox.size);
-        } else {
-          final Offset resolvedPosition = position ?? overlayBox.size.center(Offset.zero);
-          menuPosition = RelativeRect.fromLTRB(
-            resolvedPosition.dx,
-            resolvedPosition.dy,
-            overlayBox.size.width - resolvedPosition.dx,
-            overlayBox.size.height - resolvedPosition.dy,
-          );
+          localAnchorRect = Rect.fromPoints(topLeft, bottomRight);
         }
+
+        final Offset center = localAnchorRect?.center ??
+            (position != null
+                ? overlayBox.globalToLocal(position)
+                : overlayBox.size.center(Offset.zero));
+        final double menuWidth = math.max(
+          _blockTypeMenuMinWidth,
+          localAnchorRect?.width ?? 0,
+        );
+        final double menuHeight = math.max(
+          _blockTypeMenuMinHeight,
+          localAnchorRect?.height ?? 0,
+        );
+        final RelativeRect menuPosition = _centeredMenuPosition(
+          overlayBox,
+          center,
+          menuWidth,
+          menuHeight,
+        );
+        final BoxConstraints menuConstraints = BoxConstraints(
+          minWidth: menuWidth,
+          maxWidth: menuWidth,
+          minHeight: menuHeight,
+          maxHeight: math.max(menuHeight, overlayBox.size.height),
+        );
 
         final ScheduleBlockType? selection = await showMenu<ScheduleBlockType>(
           context: context,
           position: menuPosition,
+          constraints: menuConstraints,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           items: <PopupMenuEntry<ScheduleBlockType>>[
             PopupMenuItem<ScheduleBlockType>(
@@ -1982,12 +2025,15 @@ if (!_canPlaceBlock(detailsResult.dayDate, startSlot, detailsResult.durationSlot
                               width: _scheduleHourWidth,
                               child: Align(
                                 alignment: Alignment.centerRight,
-                                child: Text(
-                                  _formatTimeLabel(_scheduleEndHour),
-                                  textAlign: TextAlign.right,
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w600,
-                                    fontSize: 12,
+                                child: Transform.translate(
+                                  offset: const Offset(1.0, 0.0),
+                                  child: Text(
+                                    _formatTimeLabel(_scheduleEndHour),
+                                    textAlign: TextAlign.right,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 12,
+                                    ),
                                   ),
                                 ),
                               ),
@@ -2103,15 +2149,22 @@ if (!_canPlaceBlock(detailsResult.dayDate, startSlot, detailsResult.durationSlot
 
                         _lastInteractionPosition = details.globalPosition;
 
-                        final Offset? popupCenter = _highlightCenterForSelection(
+                        final Rect? popupRect = _highlightRectForSelection(
                           dayIndexFinal,
                           startSlot,
                           durationSlots,
                         );
+                        final Offset? popupCenter = popupRect?.center ??
+                            _highlightCenterForSelection(
+                              dayIndexFinal,
+                              startSlot,
+                              durationSlots,
+                            );
 
                         // ✅ เรียกเมนูที่ตำแหน่งตรงกลางบล็อก
                         final ScheduleBlockType? type = await _showBlockTypeChooser(
                           position: popupCenter ?? details.globalPosition,
+                          anchorRect: popupRect,
                         );
 
 
