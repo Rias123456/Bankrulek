@@ -224,7 +224,10 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
   static const double _scheduleHourWidth = 96;
   static const double _scheduleRowHeight = 60;
   static const double _dayLabelWidth = 96;
+  static const double _blockVerticalInset = 0;
   static const double _rangeSelectionActivationThreshold = 8;
+  static const double _blockTypeMenuMinWidth = 152;
+  static const double _blockTypeMenuMinHeight = 112;
   static const String _scheduleSerializationPrefix = 'SCHEDULE_V1:';
 
   int get _slotsPerHour => math.max(1, 60 ~/ _minutesPerSlot);
@@ -232,6 +235,52 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
   int get _totalSlots => (_scheduleEndHour - _scheduleStartHour) * _slotsPerHour;
 
   double get _slotWidth => _scheduleHourWidth / _slotsPerHour;
+
+  Rect? _highlightRectForSelection(int dayIndex, int startSlot, int durationSlots) {
+    final int safeDayIndex = _clampInt(dayIndex, 0, _dayLabels.length - 1);
+    final GlobalKey stackKey = _dayStackKeys[safeDayIndex];
+    final RenderBox? stackBox = stackKey.currentContext?.findRenderObject() as RenderBox?;
+    if (stackBox == null) {
+      return null;
+    }
+
+    final double highlightLeft = startSlot * _slotWidth;
+    final double highlightWidth = durationSlots * _slotWidth;
+    final Offset topLeft = stackBox.localToGlobal(
+      Offset(highlightLeft, _blockVerticalInset),
+    );
+    final Offset bottomRight = stackBox.localToGlobal(
+      Offset(highlightLeft + highlightWidth, stackBox.size.height - _blockVerticalInset),
+    );
+    return Rect.fromPoints(topLeft, bottomRight);
+  }
+
+  Offset? _highlightCenterForSelection(int dayIndex, int startSlot, int durationSlots) {
+    final Rect? rect = _highlightRectForSelection(dayIndex, startSlot, durationSlots);
+    if (rect == null) {
+      return null;
+    }
+    return Offset(
+      (rect.left + rect.right) / 2,
+      (rect.top + rect.bottom) / 2,
+    );
+  }
+
+  RelativeRect _centeredMenuPosition(
+    RenderBox overlayBox,
+    Offset center,
+    double width,
+    double height,
+  ) {
+    final Size overlaySize = overlayBox.size;
+    final double maxLeft = math.max(overlaySize.width - width, 0);
+    final double maxTop = math.max(overlaySize.height - height, 0);
+    final double left = (center.dx - width / 2).clamp(0.0, maxLeft) as double;
+    final double top = (center.dy - height / 2).clamp(0.0, maxTop) as double;
+    final double right = math.max(overlaySize.width - left - width, 0);
+    final double bottom = math.max(overlaySize.height - top - height, 0);
+    return RelativeRect.fromLTRB(left, top, right, bottom);
+  }
 
   List<DateTime> get _currentWeekDates => List<DateTime>.generate(
         _dayLabels.length,
@@ -844,9 +893,16 @@ Future<void> _finishRangeSelection({DragEndDetails? details, bool cancelled = fa
   FocusManager.instance.primaryFocus?.unfocus();
   await Future.delayed(const Duration(milliseconds: 150));
 
+  final Rect? popupRect =
+      _highlightRectForSelection(dayIndex, startSlot, durationSlots);
+  final Offset? popupCenter = popupRect?.center ??
+      _highlightCenterForSelection(dayIndex, startSlot, durationSlots);
+
   // ✅ เปิด modal เลือกประเภท block (สอน / ไม่ว่าง)
-  final ScheduleBlockType? type =
-    await _showBlockTypeChooser(position: _lastInteractionPosition);
+  final ScheduleBlockType? type = await _showBlockTypeChooser(
+    position: popupCenter ?? _lastInteractionPosition,
+    anchorRect: popupRect,
+  );
 if (!mounted || type == null) {
   debugPrint('🚫 ยกเลิกเลือกประเภท block');
   return;
@@ -979,7 +1035,12 @@ if (!_canPlaceBlock(detailsResult.dayDate, startSlot, detailsResult.durationSlot
     }
 
     _lastInteractionPosition = globalPosition;
-    final ScheduleBlockType? type = await _showBlockTypeChooser(position: globalPosition);
+    final Rect? popupRect = _highlightRectForSelection(dayIndex, slot, 1);
+    final Offset? popupCenter = popupRect?.center;
+    final ScheduleBlockType? type = await _showBlockTypeChooser(
+      position: popupCenter ?? globalPosition,
+      anchorRect: popupRect,
+    );
     if (!mounted || type == null) {
       return;
     }
@@ -1026,25 +1087,42 @@ if (!_canPlaceBlock(detailsResult.dayDate, startSlot, detailsResult.durationSlot
       final RenderObject? overlayRenderObject = overlay.context.findRenderObject();
       if (overlayRenderObject is RenderBox) {
         final RenderBox overlayBox = overlayRenderObject;
-        RelativeRect menuPosition;
+        Rect? localAnchorRect;
         if (anchorRect != null) {
           final Offset topLeft = overlayBox.globalToLocal(anchorRect.topLeft);
           final Offset bottomRight = overlayBox.globalToLocal(anchorRect.bottomRight);
-          final Rect localRect = Rect.fromPoints(topLeft, bottomRight);
-          menuPosition = RelativeRect.fromRect(localRect, Offset.zero & overlayBox.size);
-        } else {
-          final Offset resolvedPosition = position ?? overlayBox.size.center(Offset.zero);
-          menuPosition = RelativeRect.fromLTRB(
-            resolvedPosition.dx,
-            resolvedPosition.dy,
-            overlayBox.size.width - resolvedPosition.dx,
-            overlayBox.size.height - resolvedPosition.dy,
-          );
+          localAnchorRect = Rect.fromPoints(topLeft, bottomRight);
         }
+
+        final Offset center = localAnchorRect?.center ??
+            (position != null
+                ? overlayBox.globalToLocal(position)
+                : overlayBox.size.center(Offset.zero));
+        final double menuWidth = math.max(
+          _blockTypeMenuMinWidth,
+          localAnchorRect?.width ?? 0,
+        );
+        final double menuHeight = math.max(
+          _blockTypeMenuMinHeight,
+          localAnchorRect?.height ?? 0,
+        );
+        final RelativeRect menuPosition = _centeredMenuPosition(
+          overlayBox,
+          center,
+          menuWidth,
+          menuHeight,
+        );
+        final BoxConstraints menuConstraints = BoxConstraints(
+          minWidth: menuWidth,
+          maxWidth: menuWidth,
+          minHeight: menuHeight,
+          maxHeight: math.max(menuHeight, overlayBox.size.height),
+        );
 
         final ScheduleBlockType? selection = await showMenu<ScheduleBlockType>(
           context: context,
           position: menuPosition,
+          constraints: menuConstraints,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           items: <PopupMenuEntry<ScheduleBlockType>>[
             PopupMenuItem<ScheduleBlockType>(
@@ -1296,6 +1374,42 @@ if (!_canPlaceBlock(detailsResult.dayDate, startSlot, detailsResult.durationSlot
 
   Future<void> _onBlockTapped(ScheduleBlock block) async {
     final DateTime blockDisplayDate = _displayDateForBlock(block);
+    if (block.type == ScheduleBlockType.unavailable) {
+      final bool? shouldDelete = await showDialog<bool>(
+        context: context,
+        builder: (BuildContext dialogContext) {
+          return AlertDialog(
+            title: const Text('ไม่ว่าง'),
+            content: const Text('ต้องการลบบล็อกเวลานี้หรือไม่?'),
+            actions: <Widget>[
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(false),
+                child: const Text('ยกเลิก'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(dialogContext).pop(true),
+                style: FilledButton.styleFrom(
+                  backgroundColor: Colors.red.shade400,
+                  foregroundColor: Colors.white,
+                ),
+                child: const Text('ลบบล็อก'),
+              ),
+            ],
+          );
+        },
+      );
+
+      if (!mounted || shouldDelete != true) {
+        return;
+      }
+
+      setState(() {
+        _scheduleBlocks =
+            _scheduleBlocks.where((ScheduleBlock current) => current.id != block.id).toList();
+      });
+      return;
+    }
+
     final _BlockDetails? details = await _collectBlockDetails(
       type: block.type,
       dayIndex: _dayIndexForDate(blockDisplayDate),
@@ -1905,27 +2019,26 @@ if (!_canPlaceBlock(detailsResult.dayDate, startSlot, detailsResult.durationSlot
                               ).toList(),
                             ],
                           ),
-Positioned(
-  right: 0,
-  child: SizedBox(
-    width: _scheduleHourWidth, // ✅ ใช้เต็มความกว้างของ 1 ช่อง
-    child: Align(
-      alignment: Alignment.centerRight, // ✅ ชิดขอบเส้นขวาสุด
-      child: Padding(
-        padding: const EdgeInsets.only(right: 2), // ✅ เว้นจากขอบนิดหน่อย
-        child: Text(
-          _formatTimeLabel(_scheduleEndHour),
-          textAlign: TextAlign.right,
-          style: const TextStyle(
-            fontWeight: FontWeight.w600,
-            fontSize: 12,
-          ),
-        ),
-      ),
-    ),
-  ),
-),
-
+                          Positioned(
+                            right: 0,
+                            child: SizedBox(
+                              width: _scheduleHourWidth,
+                              child: Align(
+                                alignment: Alignment.centerRight,
+                                child: Transform.translate(
+                                  offset: const Offset(1.0, 0.0),
+                                  child: Text(
+                                    _formatTimeLabel(_scheduleEndHour),
+                                    textAlign: TextAlign.right,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -2036,33 +2149,23 @@ Positioned(
 
                         _lastInteractionPosition = details.globalPosition;
 
-                        // คำนวณกรอบของไฮไลต์
-Rect? anchorRect;
-final RenderBox? stackBox =
-    stackKey.currentContext?.findRenderObject() as RenderBox?;
-if (stackBox != null) {
-  final double highlightLeft = selection.startSlot * _slotWidth;
-  final double highlightWidth = selection.durationSlots * _slotWidth;
-  final Offset topLeft = stackBox.localToGlobal(Offset(highlightLeft, 6));
-  final Offset bottomRight = stackBox.localToGlobal(
-    Offset(highlightLeft + highlightWidth, stackBox.size.height - 6),
-  );
-  anchorRect = Rect.fromPoints(topLeft, bottomRight);
-}
+                        final Rect? popupRect = _highlightRectForSelection(
+                          dayIndexFinal,
+                          startSlot,
+                          durationSlots,
+                        );
+                        final Offset? popupCenter = popupRect?.center ??
+                            _highlightCenterForSelection(
+                              dayIndexFinal,
+                              startSlot,
+                              durationSlots,
+                            );
 
-// ✅ คำนวณจุดกึ่งกลางของกรอบที่ลาก
-Offset? popupCenter;
-if (anchorRect != null) {
-  popupCenter = Offset(
-    (anchorRect.left + anchorRect.right) / 2,
-    (anchorRect.top + anchorRect.bottom) / 2,
-  );
-}
-
-// ✅ เรียกเมนูที่ตำแหน่งตรงกลางบล็อก
-final ScheduleBlockType? type = await _showBlockTypeChooser(
-  position: popupCenter ?? details.globalPosition,
-);
+                        // ✅ เรียกเมนูที่ตำแหน่งตรงกลางบล็อก
+                        final ScheduleBlockType? type = await _showBlockTypeChooser(
+                          position: popupCenter ?? details.globalPosition,
+                          anchorRect: popupRect,
+                        );
 
 
 if (!mounted) {
@@ -2182,6 +2285,7 @@ final _BlockDetails? detailsResult = await _collectBlockDetails(
               behavior: HitTestBehavior.opaque,
               child: Stack(
                 key: stackKey,
+                clipBehavior: Clip.none,
                 children: [
       Positioned.fill(
         child: CustomPaint(
@@ -2197,8 +2301,8 @@ final _BlockDetails? detailsResult = await _collectBlockDetails(
           _currentSelectionRange != null)
         Positioned(
           left: _currentSelectionRange!.startSlot * _slotWidth,
-          top: 6,
-          bottom: 6,
+          top: _blockVerticalInset,
+          bottom: _blockVerticalInset,
           width: _currentSelectionRange!.durationSlots * _slotWidth,
           child: IgnorePointer(
             child: AnimatedContainer(
@@ -2206,7 +2310,7 @@ final _BlockDetails? detailsResult = await _collectBlockDetails(
               curve: Curves.easeOut,
               decoration: BoxDecoration(
                 color: Colors.grey.shade300.withOpacity(0.7),
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: BorderRadius.zero,
                 border: Border.all(color: Colors.grey.shade500),
               ),
             ),
@@ -2239,8 +2343,9 @@ final _BlockDetails? detailsResult = await _collectBlockDetails(
     final bool isRecurring = block.isRecurring && isTeaching;
     final bool isActive = _draggingBlockId == block.id;
     final bool isLifted = isActive && _isDragPrimed;
-    final double topInset = isLifted ? 0 : 6;
-    final double bottomInset = isLifted ? 12 : 6;
+    final double topInset = _blockVerticalInset;
+    final double bottomInset = _blockVerticalInset;
+    final double liftOffset = isLifted ? -4 : 0;
     return AnimatedPositioned(
       key: ValueKey<int>(block.id),
       duration: const Duration(milliseconds: 150),
@@ -2261,62 +2366,65 @@ final _BlockDetails? detailsResult = await _collectBlockDetails(
           message:
               '${_formatDayWithDateFromDate(dayDate)} ${_formatSlotRange(dayDate, block.startSlot, block.durationSlots)}\n$tooltipLabel',
           waitDuration: const Duration(milliseconds: 400),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 150),
-            curve: Curves.easeOut,
-            decoration: BoxDecoration(
-              color: backgroundColor,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: borderColor),
-              boxShadow: isLifted
-                  ? <BoxShadow>[
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.18),
-                        blurRadius: 12,
-                        offset: const Offset(0, 6),
-                      ),
-                    ]
-                  : const <BoxShadow>[],
-            ),
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-            child: Stack(
-              fit: StackFit.expand,
-              children: <Widget>[
-                if (hasLabel)
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      label!,
-                      maxLines: 3,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: textColor,
-                        fontWeight: FontWeight.w600,
+          child: Transform.translate(
+            offset: Offset(0, liftOffset),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 150),
+              curve: Curves.easeOut,
+              decoration: BoxDecoration(
+                color: backgroundColor,
+                borderRadius: BorderRadius.zero,
+                border: Border.all(color: borderColor),
+                boxShadow: isLifted
+                    ? <BoxShadow>[
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.18),
+                          blurRadius: 12,
+                          offset: const Offset(0, 6),
+                        ),
+                      ]
+                    : const <BoxShadow>[],
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              child: Stack(
+                fit: StackFit.expand,
+                children: <Widget>[
+                  if (hasLabel)
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        label!,
+                        maxLines: 3,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: textColor,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
-                  ),
-                if (isRecurring)
-                  Align(
-                    alignment: Alignment.topRight,
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        color: borderColor.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                        child: Text(
-                          'ประจำ',
-                          style: TextStyle(
-                            color: borderColor,
-                            fontSize: 10,
-                            fontWeight: FontWeight.w600,
+                  if (isRecurring)
+                    Align(
+                      alignment: Alignment.topRight,
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: borderColor.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          child: Text(
+                            'ประจำ',
+                            style: TextStyle(
+                              color: borderColor,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                         ),
                       ),
                     ),
-                  ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
