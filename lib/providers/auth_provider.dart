@@ -418,6 +418,12 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
+  /// เลือกติวเตอร์เพื่อแก้ไขข้อมูล / Assign current tutor for editing view
+  void selectTutorForEditing(Tutor tutor) {
+    _currentTutor = tutor;
+    notifyListeners();
+  }
+
   /// ล็อกอินสำหรับแอดมิน / Admin login method
   Future<String?> loginAdmin({
     required String username,
