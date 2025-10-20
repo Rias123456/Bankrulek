@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/auth_provider.dart';
+import 'home_screen.dart';
 
 /// หน้าควบคุมสำหรับแอดมิน
 class AdminDashboardScreen extends StatefulWidget {
@@ -409,7 +410,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     if (!mounted) {
       return;
     }
-    Navigator.of(context).pushNamedAndRemoveUntil('/', (Route<dynamic> route) => false);
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute<void>(
+        builder: (BuildContext context) => const HomeScreen(),
+      ),
+      (Route<dynamic> route) => false,
+    );
   }
 
   Future<void> _showDeleteTutorDialog(Tutor tutor) async {
@@ -629,16 +635,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('แดชบอร์ดแอดมิน'),
-        actions: [
-          TextButton.icon(
-            onPressed: _handleLogout,
-            style: TextButton.styleFrom(
-              foregroundColor: Colors.red,
-            ),
-            icon: const Icon(Icons.logout),
-            label: const Text('ออกจากระบบ'),
-          ),
-        ],
       ),
       body: Consumer<AuthProvider>(
         builder: (BuildContext context, AuthProvider authProvider, _) {
@@ -685,6 +681,18 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                 sliver: SliverList(
                   delegate: SliverChildListDelegate(
                     <Widget>[
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: FilledButton(
+                          onPressed: _handleLogout,
+                          style: FilledButton.styleFrom(
+                            backgroundColor: Colors.red,
+                            foregroundColor: Colors.white,
+                          ),
+                          child: const Text('ออกจากระบบ'),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
                       _buildSubjectFilterSection(),
                       const SizedBox(height: 16),
                       _buildScheduleFilterCard(),
