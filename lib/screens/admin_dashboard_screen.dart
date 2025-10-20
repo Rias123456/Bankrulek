@@ -37,61 +37,45 @@ class _CachedSchedule {
   final List<_ScheduleBlock> blocks;
 }
 
-class _ScheduleRowPainter extends CustomPainter {
-  const _ScheduleRowPainter({
-    required this.hourCount,
+class _ScheduleGridPainter extends CustomPainter {
+  const _ScheduleGridPainter({
+    required this.hourWidth,
+    required this.totalHours,
     required this.slotsPerHour,
-    required this.colorScheme,
   });
 
-  final int hourCount;
+  final double hourWidth;
+  final int totalHours;
   final int slotsPerHour;
-  final ColorScheme colorScheme;
 
   @override
   void paint(Canvas canvas, Size size) {
-    final Rect rect = Offset.zero & size;
-    final RRect roundedRect = RRect.fromRectAndRadius(rect, const Radius.circular(8));
-
-    final Paint backgroundPaint = Paint()
-      ..color = colorScheme.surfaceVariant.withOpacity(0.45)
-      ..style = PaintingStyle.fill;
-    canvas.drawRRect(roundedRect, backgroundPaint);
-
-    final Paint borderPaint = Paint()
-      ..color = colorScheme.outlineVariant
-      ..style = PaintingStyle.stroke
+    final Paint mainPaint = Paint()
+      ..color = const Color(0xFFE0E0E0)
       ..strokeWidth = 1;
-    canvas.drawRRect(roundedRect, borderPaint);
-
-    final double hourWidth = size.width / math.max(1, hourCount);
-    final Paint hourLinePaint = Paint()
-      ..color = colorScheme.outlineVariant.withOpacity(0.6)
+    final Paint divisionPaint = Paint()
+      ..color = const Color(0xFFF2F2F2)
       ..strokeWidth = 1;
-    for (int hour = 1; hour < hourCount; hour++) {
-      final double dx = hour * hourWidth;
-      canvas.drawLine(Offset(dx, 0), Offset(dx, size.height), hourLinePaint);
-    }
 
-    if (slotsPerHour > 1) {
-      final double slotWidth = hourWidth / slotsPerHour;
-      final Paint slotPaint = Paint()
-        ..color = colorScheme.outlineVariant.withOpacity(0.2)
-        ..strokeWidth = 1;
-      for (int hour = 0; hour < hourCount; hour++) {
+    for (int hour = 0; hour <= totalHours; hour++) {
+      final double x = hour * hourWidth;
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), mainPaint);
+      if (hour < totalHours && slotsPerHour > 1) {
         for (int slot = 1; slot < slotsPerHour; slot++) {
-          final double dx = hour * hourWidth + slot * slotWidth;
-          canvas.drawLine(Offset(dx, 0), Offset(dx, size.height), slotPaint);
+          final double slotX = x + hourWidth * slot / slotsPerHour;
+          canvas.drawLine(Offset(slotX, 0), Offset(slotX, size.height), divisionPaint);
         }
       }
     }
+    canvas.drawLine(Offset(0, 0), Offset(size.width, 0), mainPaint);
+    canvas.drawLine(Offset(0, size.height), Offset(size.width, size.height), mainPaint);
   }
 
   @override
-  bool shouldRepaint(covariant _ScheduleRowPainter oldDelegate) {
-    return hourCount != oldDelegate.hourCount ||
-        slotsPerHour != oldDelegate.slotsPerHour ||
-        colorScheme != oldDelegate.colorScheme;
+  bool shouldRepaint(covariant _ScheduleGridPainter oldDelegate) {
+    return oldDelegate.hourWidth != hourWidth ||
+        oldDelegate.totalHours != totalHours ||
+        oldDelegate.slotsPerHour != slotsPerHour;
   }
 }
 
@@ -178,6 +162,25 @@ class _ScheduleBlock {
 }
 
 class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
+  static const Map<String, List<String>> _subjectLevels = <String, List<String>>{
+    'คณิต': <String>['ประถม', 'มัธยมต้น', 'มัธยมปลาย'],
+    'วิทย์': <String>['ประถม', 'มัธยมต้น', 'มัธยมปลาย'],
+    'อังกฤษ': <String>['ประถม', 'มัธยมต้น', 'มัธยมปลาย'],
+    'ไทย': <String>['ประถม', 'มัธยมต้น', 'มัธยมปลาย'],
+    'สังคม': <String>['ประถม', 'มัธยมต้น', 'มัธยมปลาย'],
+    'ฟิสิก': <String>[],
+    'เคมี': <String>[],
+    'ชีวะ': <String>[],
+  };
+
+  static final List<String> _subjectOptions = _subjectLevels.entries
+      .expand(
+        (MapEntry<String, List<String>> entry) => entry.value.isEmpty
+            ? <String>[entry.key]
+            : entry.value.map((String level) => '${entry.key} ($level)'),
+      )
+      .toList(growable: false);
+
   static const List<String> _dayLabels = <String>['เสาร์', 'อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัส', 'ศุกร์'];
   static const int _scheduleStartHour = 8;
   static const int _scheduleEndHour = 20;
@@ -200,8 +203,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   int get _totalSlots => (_scheduleEndHour - _scheduleStartHour) * _slotsPerHour;
 
   double get _slotWidth => _scheduleHourWidth / _slotsPerHour;
-
-  double get _gridWidth => _totalSlots * _slotWidth;
 
   @override
   void dispose() {
@@ -675,42 +676,50 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           }
           final List<Tutor> sortedTutors = List<Tutor>.from(tutors)
             ..sort((Tutor a, Tutor b) => a.nickname.toLowerCase().compareTo(b.nickname.toLowerCase()));
-          final Set<String> allSubjects = sortedTutors
-              .expand((Tutor tutor) => tutor.subjects)
-              .where((String subject) => subject.trim().isNotEmpty)
-              .map((String subject) => subject.trim())
-              .toSet();
           final List<Tutor> filteredTutors = sortedTutors.where(_matchesFilters).toList();
 
-          return Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _buildSubjectFilterSection(allSubjects),
-                const SizedBox(height: 16),
-                _buildScheduleFilterCard(),
-                const SizedBox(height: 16),
-                _buildFilterSummary(filteredTutors.length, sortedTutors.length),
-                const SizedBox(height: 8),
-                Expanded(
-                  child: _buildTutorGrid(filteredTutors),
+          return CustomScrollView(
+            slivers: [
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                sliver: SliverList(
+                  delegate: SliverChildListDelegate(
+                    <Widget>[
+                      _buildSubjectFilterSection(),
+                      const SizedBox(height: 16),
+                      _buildScheduleFilterCard(),
+                      const SizedBox(height: 16),
+                      _buildFilterSummary(filteredTutors.length, sortedTutors.length),
+                      const SizedBox(height: 8),
+                    ],
+                  ),
                 ),
-              ],
-            ),
+              ),
+              if (filteredTutors.isEmpty)
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                  sliver: SliverToBoxAdapter(
+                    child: _buildEmptyTutorMessage(),
+                  ),
+                )
+              else
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                  sliver: _buildTutorGrid(filteredTutors),
+                ),
+            ],
           );
         },
       ),
     );
   }
 
-  Widget _buildSubjectFilterSection(Set<String> allSubjects) {
+  Widget _buildSubjectFilterSection() {
     final ThemeData theme = Theme.of(context);
-    final List<String> sortedSubjects = allSubjects.toList()
-      ..sort((String a, String b) => a.compareTo(b));
-    final List<String> availableSelections =
-        _selectedSubjects.where((String subject) => sortedSubjects.contains(subject)).toList();
-    final String? dropdownValue = availableSelections.isEmpty ? null : availableSelections.last;
+    final List<String> availableSubjects = _subjectOptions;
+    final List<String> validSelections =
+        _selectedSubjects.where((String subject) => availableSubjects.contains(subject)).toList();
+    final String? dropdownValue = validSelections.isEmpty ? null : validSelections.last;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -728,7 +737,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                   border: OutlineInputBorder(),
                   prefixIcon: Icon(Icons.menu_book_outlined),
                 ),
-                items: sortedSubjects.map((String subject) {
+                items: availableSubjects.map((String subject) {
                   final bool isSelected = _selectedSubjects.contains(subject);
                   return DropdownMenuItem<String>(
                     value: subject,
@@ -753,7 +762,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     ),
                   );
                 }).toList(),
-                onChanged: sortedSubjects.isEmpty
+                onChanged: availableSubjects.isEmpty
                     ? null
                     : (String? subject) {
                         if (subject == null) {
@@ -762,13 +771,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                         setState(() {
                           if (_selectedSubjects.contains(subject)) {
                             _selectedSubjects.remove(subject);
-                          } else {
+                          } else if (availableSubjects.contains(subject)) {
                             _selectedSubjects.add(subject);
                           }
+                          _selectedSubjects
+                              .removeWhere((String value) => !availableSubjects.contains(value));
                         });
                       },
                 selectedItemBuilder: (BuildContext context) {
-                  return sortedSubjects.map((String subject) {
+                  return availableSubjects.map((String subject) {
                     final String displayText = _selectedSubjects.isEmpty
                         ? subject
                         : 'เลือกแล้ว ${_selectedSubjects.length} วิชา';
@@ -794,21 +805,16 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           ],
         ),
         const SizedBox(height: 8),
-        if (sortedSubjects.isEmpty)
+        if (_selectedSubjects.isEmpty)
           Text(
-            'ยังไม่มีข้อมูลวิชาในระบบ',
-            style: theme.textTheme.bodySmall,
-          )
-        else if (_selectedSubjects.isEmpty)
-          Text(
-            'สามารถเลือกได้หลายวิชาเพื่อกรองครู',
+            'เลือกได้หลายวิชาเพื่อกรองรายชื่อครู',
             style: theme.textTheme.bodySmall,
           )
         else
           Wrap(
             spacing: 8,
             runSpacing: 8,
-            children: _selectedSubjects.map((String subject) {
+            children: validSelections.map((String subject) {
               return InputChip(
                 label: Text(subject),
                 onDeleted: () => setState(() => _selectedSubjects.remove(subject)),
@@ -865,101 +871,158 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
   Widget _buildScheduleGrid() {
     final ThemeData theme = Theme.of(context);
-    return SingleChildScrollView(
-      controller: _timelineScrollController,
-      scrollDirection: Axis.horizontal,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+    final double gridWidth = (_scheduleEndHour - _scheduleStartHour + 0.5) * _scheduleHourWidth;
+
+    return ClipRect(
+      child: GestureDetector(
+        onHorizontalDragUpdate: (DragUpdateDetails details) {
+          if (!_timelineScrollController.hasClients) {
+            return;
+          }
+          final double delta = -details.delta.dx;
+          final double minOffset = _timelineScrollController.position.minScrollExtent;
+          final double maxOffset = _timelineScrollController.position.maxScrollExtent;
+          final double nextOffset = (_timelineScrollController.offset + delta).clamp(minOffset, maxOffset);
+          _timelineScrollController.jumpTo(nextOffset);
+        },
+        child: SingleChildScrollView(
+          controller: _timelineScrollController,
+          physics: const NeverScrollableScrollPhysics(),
+          scrollDirection: Axis.horizontal,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const SizedBox(width: _dayLabelWidth),
-              for (int hour = 0; hour < _scheduleEndHour - _scheduleStartHour; hour++)
-                Container(
-                  width: _scheduleHourWidth,
-                  alignment: Alignment.center,
-                  child: Text(
-                    '${_scheduleStartHour + hour}:00-${_scheduleStartHour + hour + 1}:00',
-                    style: theme.textTheme.bodySmall,
-                  ),
-                ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Column(
-            children: List<Widget>.generate(_dayLabels.length, (int dayIndex) {
-              return Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    SizedBox(
-                      width: _dayLabelWidth,
-                      child: Text(
-                        _dayLabels[dayIndex],
-                        style: theme.textTheme.bodyMedium,
-                      ),
-                    ),
-                    GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onTapDown: (TapDownDetails details) =>
-                          _handleTapSelection(dayIndex, details.localPosition.dx),
-                      onLongPressStart: (LongPressStartDetails details) =>
-                          _handleLongPressStart(dayIndex, details.localPosition.dx),
-                      onLongPressMoveUpdate: (LongPressMoveUpdateDetails details) =>
-                          _handleLongPressUpdate(dayIndex, details.localPosition.dx),
-                      onLongPressEnd: (_) => _handleLongPressEnd(),
-                      child: SizedBox(
-                        width: _gridWidth,
-                        height: _scheduleRowHeight,
-                        child: Stack(
-                          children: [
-                            CustomPaint(
-                              size: Size(_gridWidth, _scheduleRowHeight),
-                              painter: _ScheduleRowPainter(
-                                hourCount: _scheduleEndHour - _scheduleStartHour,
-                                slotsPerHour: _slotsPerHour,
-                                colorScheme: theme.colorScheme,
+              Row(
+                children: [
+                  const SizedBox(width: _dayLabelWidth),
+                  SizedBox(
+                    width: gridWidth + 8,
+                    child: Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        Row(
+                          children: List<Widget>.generate(
+                            _scheduleEndHour - _scheduleStartHour,
+                            (int index) {
+                              final int hour = _scheduleStartHour + index;
+                              return SizedBox(
+                                width: _scheduleHourWidth,
+                                child: Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: Padding(
+                                    padding: const EdgeInsets.only(left: 2),
+                                    child: Text(
+                                      _formatHourLabel(hour),
+                                      style: theme.textTheme.bodySmall?.copyWith(
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                        Positioned(
+                          left: gridWidth - (_scheduleHourWidth * 0.43),
+                          top: 0,
+                          bottom: 0,
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              _formatHourLabel(_scheduleEndHour),
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                fontWeight: FontWeight.w600,
                               ),
                             ),
-                            if (_selectedRange?.dayIndex == dayIndex)
-                              Positioned(
-                                left: _selectedRange!.startSlot * _slotWidth,
-                                top: 4,
-                                bottom: 4,
-                                child: Builder(
-                                  builder: (BuildContext context) {
-                                    final double left = _selectedRange!.startSlot * _slotWidth;
-                                    final double desiredWidth = math.max(
-                                      _slotWidth,
-                                      (_selectedRange!.endSlot - _selectedRange!.startSlot) * _slotWidth,
-                                    );
-                                    final double maxWidth = math.max(0, _gridWidth - left);
-                                    final double highlightWidth = math.min(maxWidth, desiredWidth);
-                                    return Container(
-                                      width: highlightWidth,
-                                      decoration: BoxDecoration(
-                                        color: theme.colorScheme.primary.withOpacity(0.2),
-                                        borderRadius: BorderRadius.circular(8),
-                                        border: Border.all(
-                                          color: theme.colorScheme.primary,
-                                          width: 1.5,
-                                        ),
-                                      ),
-                                    );
-                                  },
-                                ),
-                              ),
-                          ],
+                          ),
                         ),
-                      ),
+                      ],
                     ),
-                  ],
-                ),
-              );
-            }),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Column(
+                children: List<Widget>.generate(_dayLabels.length, (int dayIndex) {
+                  return SizedBox(
+                    height: _scheduleRowHeight,
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.only(right: 18),
+                          child: SizedBox(
+                            width: _dayLabelWidth,
+                            child: Align(
+                              alignment: Alignment.centerRight,
+                              child: Text(
+                                _dayLabels[dayIndex],
+                                style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+                              ),
+                            ),
+                          ),
+                        ),
+                        GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTapDown: (TapDownDetails details) =>
+                              _handleTapSelection(dayIndex, details.localPosition.dx),
+                          onLongPressStart: (LongPressStartDetails details) =>
+                              _handleLongPressStart(dayIndex, details.localPosition.dx),
+                          onLongPressMoveUpdate: (LongPressMoveUpdateDetails details) =>
+                              _handleLongPressUpdate(dayIndex, details.localPosition.dx),
+                          onLongPressEnd: (_) => _handleLongPressEnd(),
+                          child: SizedBox(
+                            width: gridWidth,
+                            height: _scheduleRowHeight,
+                            child: Stack(
+                              clipBehavior: Clip.none,
+                              children: [
+                                Positioned.fill(
+                                  child: CustomPaint(
+                                    painter: _ScheduleGridPainter(
+                                      hourWidth: _scheduleHourWidth,
+                                      totalHours: _scheduleEndHour - _scheduleStartHour,
+                                      slotsPerHour: _slotsPerHour,
+                                    ),
+                                  ),
+                                ),
+                                if (_selectedRange?.dayIndex == dayIndex)
+                                  Positioned(
+                                    left: _selectedRange!.startSlot * _slotWidth,
+                                    top: 6,
+                                    bottom: 6,
+                                    child: Builder(
+                                      builder: (BuildContext context) {
+                                        final double left = _selectedRange!.startSlot * _slotWidth;
+                                        final double desiredWidth = math.max(
+                                          _slotWidth,
+                                          (_selectedRange!.endSlot - _selectedRange!.startSlot) * _slotWidth,
+                                        );
+                                        final double maxWidth = math.max(0, _totalSlots * _slotWidth - left);
+                                        final double highlightWidth = math.min(maxWidth, desiredWidth);
+                                        return Container(
+                                          width: highlightWidth,
+                                          decoration: BoxDecoration(
+                                            color: Colors.grey.shade300.withOpacity(0.7),
+                                            border: Border.all(color: Colors.grey.shade500),
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -1016,7 +1079,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
   int _slotFromDx(double dx) {
     final double safeDx = dx.isNaN ? 0 : dx;
-    final double maxDx = math.max(0, _gridWidth - 0.01);
+    final double maxDx = math.max(0, _totalSlots * _slotWidth - 0.01);
     final double clamped = safeDx.clamp(0, maxDx).toDouble();
     final int slot = (clamped / _slotWidth).floor();
     return _clampInt(slot, 0, _totalSlots - 1);
@@ -1027,6 +1090,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     final TimeOfDay startTime = _timeForSlot(selection.startSlot);
     final TimeOfDay endTime = _timeForSlot(selection.endSlot);
     return '$dayLabel ${_formatTimeOfDay(startTime)} - ${_formatTimeOfDay(endTime)}';
+  }
+
+  String _formatHourLabel(int hour) {
+    final int normalizedHour = hour.clamp(0, 23);
+    return normalizedHour.toString().padLeft(2, '0') + ':00';
   }
 
   TimeOfDay _timeForSlot(int slot) {
@@ -1081,48 +1149,45 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     );
   }
 
-  Widget _buildTutorGrid(List<Tutor> tutors) {
-    if (tutors.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.search_off,
-              size: 48,
-              color: Theme.of(context).colorScheme.outline,
-            ),
-            const SizedBox(height: 12),
-            const Text('ไม่พบครูที่ตรงกับตัวกรอง'),
-            const SizedBox(height: 4),
-            Text(
-              'ลองปรับตัวกรองวิชาหรือช่วงเวลาใหม่อีกครั้ง',
-              style: Theme.of(context).textTheme.bodySmall,
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ),
-      );
-    }
-    return LayoutBuilder(
-      builder: (BuildContext context, BoxConstraints constraints) {
-        final double width = constraints.maxWidth;
-        final int crossAxisCount = math.max(1, (width / 200).floor());
-        return GridView.builder(
-          padding: EdgeInsets.zero,
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: crossAxisCount,
-            mainAxisSpacing: 16,
-            crossAxisSpacing: 16,
-            childAspectRatio: 0.85,
+  SliverGrid _buildTutorGrid(List<Tutor> tutors) {
+    return SliverGrid(
+      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: 220,
+        mainAxisSpacing: 16,
+        crossAxisSpacing: 16,
+        childAspectRatio: 0.85,
+      ),
+      delegate: SliverChildBuilderDelegate(
+        (BuildContext context, int index) {
+          final Tutor tutor = tutors[index];
+          return _buildTutorTile(tutor);
+        },
+        childCount: tutors.length,
+      ),
+    );
+  }
+
+  Widget _buildEmptyTutorMessage() {
+    final ThemeData theme = Theme.of(context);
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.search_off,
+            size: 48,
+            color: theme.colorScheme.outline,
           ),
-          itemCount: tutors.length,
-          itemBuilder: (BuildContext context, int index) {
-            final Tutor tutor = tutors[index];
-            return _buildTutorTile(tutor);
-          },
-        );
-      },
+          const SizedBox(height: 12),
+          const Text('ไม่พบครูที่ตรงกับตัวกรอง'),
+          const SizedBox(height: 4),
+          Text(
+            'ลองปรับตัวกรองวิชาหรือช่วงเวลาใหม่อีกครั้ง',
+            style: theme.textTheme.bodySmall,
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
     );
   }
 
