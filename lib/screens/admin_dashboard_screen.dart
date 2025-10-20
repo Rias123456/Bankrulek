@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/auth_provider.dart';
-import 'admin_tutor_profile_screen.dart';
 
 /// หน้าควบคุมสำหรับแอดมิน
 class AdminDashboardScreen extends StatefulWidget {
@@ -1205,11 +1204,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       color: Theme.of(context).colorScheme.surface,
       child: InkWell(
         onTap: () {
-          Navigator.of(context).push(
-            MaterialPageRoute<void>(
-              builder: (BuildContext context) => AdminTutorProfileScreen(tutor: tutor),
-            ),
-          );
+          context.read<AuthProvider>().impersonateTutor(tutor);
+          Navigator.of(context).pushNamed('/login-success');
         },
         borderRadius: borderRadius,
         child: Padding(
