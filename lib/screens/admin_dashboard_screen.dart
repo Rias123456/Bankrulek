@@ -705,7 +705,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
               else
                 SliverPadding(
                   padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                  sliver: _buildTutorGrid(filteredTutors),
+                  sliver: _buildTutorList(filteredTutors),
                 ),
             ],
           );
@@ -1149,18 +1149,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     );
   }
 
-  SliverGrid _buildTutorGrid(List<Tutor> tutors) {
-    return SliverGrid(
-      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: 220,
-        mainAxisSpacing: 16,
-        crossAxisSpacing: 16,
-        childAspectRatio: 0.85,
-      ),
+  SliverList _buildTutorList(List<Tutor> tutors) {
+    return SliverList(
       delegate: SliverChildBuilderDelegate(
         (BuildContext context, int index) {
           final Tutor tutor = tutors[index];
-          return _buildTutorTile(tutor);
+          return Padding(
+            padding: EdgeInsets.only(top: index == 0 ? 0 : 12),
+            child: _buildTutorTile(tutor),
+          );
         },
         childCount: tutors.length,
       ),
@@ -1200,49 +1197,71 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         avatarImage = null;
       }
     }
-    return GestureDetector(
-      onTap: () => _showEditTutorDialog(tutor),
-      child: Card(
-        elevation: 1,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        child: Stack(
-          children: [
-            Center(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
+    final BorderRadius borderRadius = BorderRadius.circular(16);
+    return Material(
+      elevation: 1.5,
+      borderRadius: borderRadius,
+      color: Theme.of(context).colorScheme.surface,
+      child: InkWell(
+        onTap: () => _showEditTutorDialog(tutor),
+        borderRadius: borderRadius,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            children: [
+              CircleAvatar(
+                radius: 28,
+                backgroundImage: avatarImage,
+                child: avatarImage == null
+                    ? Text(
+                        tutor.nickname.characters.isNotEmpty
+                            ? tutor.nickname.characters.first
+                            : '?',
+                        style: Theme.of(context).textTheme.titleLarge,
+                      )
+                    : null,
+              ),
+              const SizedBox(width: 16),
+              Expanded(
                 child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    CircleAvatar(
-                      radius: 36,
-                      backgroundImage: avatarImage,
-                      child: avatarImage == null
-                          ? Text(
-                              tutor.nickname.characters.isNotEmpty
-                                  ? tutor.nickname.characters.first
-                                  : '?',
-                              style: Theme.of(context).textTheme.titleLarge,
-                            )
-                          : null,
-                    ),
-                    const SizedBox(height: 12),
                     Text(
                       tutor.nickname.isEmpty ? 'ไม่ระบุชื่อเล่น' : tutor.nickname,
                       style: Theme.of(context).textTheme.titleMedium,
-                      textAlign: TextAlign.center,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'แตะเพื่อดูโปรไฟล์',
+                      style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ],
                 ),
               ),
-            ),
-            Positioned(
-              top: 4,
-              right: 4,
-              child: _buildTutorMenu(tutor),
-            ),
-          ],
+              const SizedBox(width: 12),
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  _buildTutorMenu(tutor),
+                  const SizedBox(height: 4),
+                  FilledButton.tonal(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: Theme.of(context).colorScheme.errorContainer,
+                      foregroundColor: Theme.of(context).colorScheme.onErrorContainer,
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      minimumSize: const Size(0, 36),
+                    ),
+                    onPressed: () => _showDeleteTutorDialog(tutor),
+                    child: const Text('ลบ'),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
