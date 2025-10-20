@@ -439,6 +439,12 @@ class AuthProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// ให้แอดมินเลือกดูโปรไฟล์ติวเตอร์ / Allow admin to open a tutor profile
+  void impersonateTutor(Tutor tutor) {
+    _currentTutor = tutor;
+    notifyListeners();
+  }
+
   /// อัปเดตข้อมูลติวเตอร์ / Update tutor information
   Future<String?> updateTutor({
     required String originalEmail,
