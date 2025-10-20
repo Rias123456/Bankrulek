@@ -681,18 +681,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                 sliver: SliverList(
                   delegate: SliverChildListDelegate(
                     <Widget>[
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: FilledButton(
-                          onPressed: _handleLogout,
-                          style: FilledButton.styleFrom(
-                            backgroundColor: Colors.red,
-                            foregroundColor: Colors.white,
-                          ),
-                          child: const Text('ออกจากระบบ'),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
                       _buildSubjectFilterSection(),
                       const SizedBox(height: 16),
                       _buildScheduleFilterCard(),
@@ -803,14 +791,26 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
               ),
             ),
             const SizedBox(width: 12),
-            TextButton.icon(
-              onPressed: _selectedSubjects.isEmpty
-                  ? null
-                  : () => setState(() => _selectedSubjects.clear()),
-              icon: const Icon(Icons.clear),
-              label: const Text('ล้างวิชา'),
+            FilledButton(
+              onPressed: _handleLogout,
+              style: FilledButton.styleFrom(
+                backgroundColor: Colors.red,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('ออกจากระบบ'),
             ),
           ],
+        ),
+        const SizedBox(height: 8),
+        Align(
+          alignment: AlignmentDirectional.centerStart,
+          child: TextButton.icon(
+            onPressed: _selectedSubjects.isEmpty
+                ? null
+                : () => setState(() => _selectedSubjects.clear()),
+            icon: const Icon(Icons.clear),
+            label: const Text('ล้างวิชา'),
+          ),
         ),
         const SizedBox(height: 8),
         if (_selectedSubjects.isEmpty)
