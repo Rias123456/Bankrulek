@@ -1453,16 +1453,16 @@ menuPosition = RelativeRect.fromLTRB(
     }
 
     setState(() => _isSaving = true);
-    final List<String> nameParts = _fullNameController.text
-        .trim()
-        .split(RegExp(r'\s+'))
-        .where((String part) => part.isNotEmpty)
-        .toList();
-    final String parsedFirstName =
-        nameParts.isNotEmpty ? nameParts.first : currentTutor.firstName;
-    final String parsedLastName = nameParts.length > 1
-        ? nameParts.sublist(1).join(' ')
-        : currentTutor.lastName;
+    final String trimmedFullName = _fullNameController.text.trim();
+    final List<String> nameParts = trimmedFullName.isEmpty
+        ? <String>[]
+        : trimmedFullName
+            .split(RegExp(r'\s+'))
+            .where((String part) => part.isNotEmpty)
+            .toList();
+    final String parsedFirstName = nameParts.isNotEmpty ? nameParts.first : '';
+    final String parsedLastName =
+        nameParts.length > 1 ? nameParts.sublist(1).join(' ') : '';
 
     final Tutor updatedTutor = currentTutor.copyWith(
       firstName: parsedFirstName,
@@ -1743,20 +1743,7 @@ menuPosition = RelativeRect.fromLTRB(
               inputFormatters: <TextInputFormatter>[
                 FilteringTextInputFormatter.allow(RegExp(r'[a-zA-Zก-๙\s]')),
               ],
-              validator: (String? value) {
-                final String trimmed = value?.trim() ?? '';
-                if (trimmed.isEmpty) {
-                  return 'กรุณากรอกชื่อจริงและนามสกุล';
-                }
-                final List<String> parts = trimmed
-                    .split(RegExp(r'\s+'))
-                    .where((String part) => part.isNotEmpty)
-                    .toList();
-                if (parts.length < 2) {
-                  return 'กรุณากรอกชื่อจริงและนามสกุล';
-                }
-                return null;
-              },
+              validator: (String? value) => null,
             ),
             const SizedBox(height: 16),
             _buildTextField(
