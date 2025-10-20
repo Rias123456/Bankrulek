@@ -706,33 +706,100 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
   Widget _buildSubjectFilterSection(Set<String> allSubjects) {
     final ThemeData theme = Theme.of(context);
-    final List<String> sortedSubjects = allSubjects.toList()..sort((String a, String b) => a.compareTo(b));
+    final List<String> sortedSubjects = allSubjects.toList()
+      ..sort((String a, String b) => a.compareTo(b));
+    final List<String> availableSelections =
+        _selectedSubjects.where((String subject) => sortedSubjects.contains(subject)).toList();
+    final String? dropdownValue = availableSelections.isEmpty ? null : availableSelections.last;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            FilledButton.icon(
-              onPressed:
-                  sortedSubjects.isEmpty ? null : () => _showSubjectFilterSheet(sortedSubjects),
-              icon: const Icon(Icons.menu_book_outlined),
-              label: Text(
-                _selectedSubjects.isEmpty
-                    ? 'เลือกวิชา'
-                    : 'เลือกวิชา (${_selectedSubjects.length})',
+            Expanded(
+              child: DropdownButtonFormField<String>(
+                value: dropdownValue,
+                isExpanded: true,
+                decoration: const InputDecoration(
+                  labelText: 'รายวิชา',
+                  hintText: 'เลือกวิชา',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.menu_book_outlined),
+                ),
+                items: sortedSubjects.map((String subject) {
+                  final bool isSelected = _selectedSubjects.contains(subject);
+                  return DropdownMenuItem<String>(
+                    value: subject,
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            subject,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        if (isSelected)
+                          Padding(
+                            padding: const EdgeInsets.only(left: 8),
+                            child: Icon(
+                              Icons.check_circle,
+                              size: 18,
+                              color: theme.colorScheme.primary,
+                            ),
+                          ),
+                      ],
+                    ),
+                  );
+                }).toList(),
+                onChanged: sortedSubjects.isEmpty
+                    ? null
+                    : (String? subject) {
+                        if (subject == null) {
+                          return;
+                        }
+                        setState(() {
+                          if (_selectedSubjects.contains(subject)) {
+                            _selectedSubjects.remove(subject);
+                          } else {
+                            _selectedSubjects.add(subject);
+                          }
+                        });
+                      },
+                selectedItemBuilder: (BuildContext context) {
+                  return sortedSubjects.map((String subject) {
+                    final String displayText = _selectedSubjects.isEmpty
+                        ? subject
+                        : 'เลือกแล้ว ${_selectedSubjects.length} วิชา';
+                    return Align(
+                      alignment: AlignmentDirectional.centerStart,
+                      child: Text(
+                        displayText,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    );
+                  }).toList();
+                },
               ),
             ),
             const SizedBox(width: 12),
-            if (_selectedSubjects.isNotEmpty)
-              TextButton.icon(
-                onPressed: () => setState(() => _selectedSubjects.clear()),
-                icon: const Icon(Icons.clear),
-                label: const Text('ล้างวิชา'),
-              ),
+            TextButton.icon(
+              onPressed: _selectedSubjects.isEmpty
+                  ? null
+                  : () => setState(() => _selectedSubjects.clear()),
+              icon: const Icon(Icons.clear),
+              label: const Text('ล้างวิชา'),
+            ),
           ],
         ),
         const SizedBox(height: 8),
-        if (_selectedSubjects.isEmpty)
+        if (sortedSubjects.isEmpty)
+          Text(
+            'ยังไม่มีข้อมูลวิชาในระบบ',
+            style: theme.textTheme.bodySmall,
+          )
+        else if (_selectedSubjects.isEmpty)
           Text(
             'สามารถเลือกได้หลายวิชาเพื่อกรองครู',
             style: theme.textTheme.bodySmall,
@@ -750,105 +817,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           ),
       ],
     );
-  }
-
-  Future<void> _showSubjectFilterSheet(List<String> subjects) async {
-    final Set<String> tempSelection = Set<String>.from(_selectedSubjects);
-    final Set<String>? result = await showModalBottomSheet<Set<String>>(
-      context: context,
-      isScrollControlled: true,
-      builder: (BuildContext sheetContext) {
-        return SafeArea(
-          child: Padding(
-            padding: EdgeInsets.only(
-              left: 16,
-              right: 16,
-              top: 16,
-              bottom: 16 + MediaQuery.of(sheetContext).viewInsets.bottom,
-            ),
-            child: StatefulBuilder(
-              builder: (BuildContext context, StateSetter setModalState) {
-                return Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text(
-                      'เลือกวิชาที่ต้องการกรอง',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: 12),
-                    if (subjects.isEmpty)
-                      const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 24),
-                        child: Center(child: Text('ยังไม่มีข้อมูลวิชาในระบบ')),
-                      )
-                    else ...[
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: TextButton(
-                          onPressed: () => setModalState(() => tempSelection.clear()),
-                          child: const Text('ล้างทั้งหมด'),
-                        ),
-                      ),
-                      ConstrainedBox(
-                        constraints: const BoxConstraints(maxHeight: 360),
-                        child: ListView.builder(
-                          shrinkWrap: true,
-                          itemCount: subjects.length,
-                          itemBuilder: (BuildContext context, int index) {
-                            final String subject = subjects[index];
-                            final bool isSelected = tempSelection.contains(subject);
-                            return CheckboxListTile(
-                              value: isSelected,
-                              onChanged: (bool? value) {
-                                setModalState(() {
-                                  if (value == true) {
-                                    tempSelection.add(subject);
-                                  } else {
-                                    tempSelection.remove(subject);
-                                  }
-                                });
-                              },
-                              title: Text(subject),
-                            );
-                          },
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: OutlinedButton(
-                              onPressed: () => Navigator.of(sheetContext).pop(),
-                              child: const Text('ยกเลิก'),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: FilledButton(
-                              onPressed: () =>
-                                  Navigator.of(sheetContext).pop(Set<String>.from(tempSelection)),
-                              child: const Text('ยืนยัน'),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ],
-                );
-              },
-            ),
-          ),
-        );
-      },
-    );
-    if (result != null) {
-      setState(() {
-        _selectedSubjects
-          ..clear()
-          ..addAll(result);
-      });
-    }
   }
 
   Widget _buildScheduleFilterCard() {
@@ -911,7 +879,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                   width: _scheduleHourWidth,
                   alignment: Alignment.center,
                   child: Text(
-                    '${_scheduleStartHour + hour}:00',
+                    '${_scheduleStartHour + hour}:00-${_scheduleStartHour + hour + 1}:00',
                     style: theme.textTheme.bodySmall,
                   ),
                 ),
