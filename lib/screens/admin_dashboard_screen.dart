@@ -409,7 +409,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     if (!mounted) {
       return;
     }
-    Navigator.of(context).pushNamedAndRemoveUntil('/admin-login', (Route<dynamic> route) => false);
+    Navigator.of(context).pushNamedAndRemoveUntil('/', (Route<dynamic> route) => false);
   }
 
   Future<void> _showDeleteTutorDialog(Tutor tutor) async {
@@ -633,7 +633,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           TextButton.icon(
             onPressed: _handleLogout,
             style: TextButton.styleFrom(
-              foregroundColor: Theme.of(context).colorScheme.onPrimary,
+              foregroundColor: Colors.red,
             ),
             icon: const Icon(Icons.logout),
             label: const Text('ออกจากระบบ'),
