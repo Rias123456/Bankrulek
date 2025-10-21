@@ -199,6 +199,7 @@ class Tutor {
     String? profileImageBase64,
     List<String>? subjects,
     String? teachingSchedule,
+    bool overrideTeachingSchedule = false,
   }) {
     return Tutor(
       firstName: firstName ?? this.firstName,
@@ -213,7 +214,8 @@ class Tutor {
       travelDuration: travelDuration ?? this.travelDuration,
       profileImageBase64: profileImageBase64 ?? this.profileImageBase64,
       subjects: subjects ?? this.subjects,
-      teachingSchedule: teachingSchedule ?? this.teachingSchedule,
+      teachingSchedule:
+          overrideTeachingSchedule ? teachingSchedule : teachingSchedule ?? this.teachingSchedule,
     );
   }
 }

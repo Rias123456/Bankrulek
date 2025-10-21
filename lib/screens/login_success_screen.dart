@@ -1485,6 +1485,7 @@ menuPosition = RelativeRect.fromLTRB(
         }
         return null;
       }(),
+      overrideTeachingSchedule: true,
     );
 
     final String? error = await authProvider.updateTutor(
