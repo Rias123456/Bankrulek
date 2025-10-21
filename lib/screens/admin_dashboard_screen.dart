@@ -405,8 +405,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     travelDurationController.dispose();
   }
 
-  void _handleLogout() {
-    context.read<AuthProvider>().logout();
+  Future<void> _handleLogout() async {
+    await context.read<AuthProvider>().logout();
     if (!mounted) {
       return;
     }
@@ -776,7 +776,9 @@ Widget _buildSubjectFilterSection() {
           ),
           const SizedBox(width: 12),
           FilledButton(
-            onPressed: _handleLogout,
+            onPressed: () async {
+              await _handleLogout();
+            },
             style: FilledButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
             child: const Text('ออกจากระบบ'),
           ),
