@@ -1511,8 +1511,11 @@ menuPosition = RelativeRect.fromLTRB(
     );
   }
 
-  void _handleLogout() {
-    context.read<AuthProvider>().logout();
+  Future<void> _handleLogout() async {
+    await context.read<AuthProvider>().logout();
+    if (!mounted) {
+      return;
+    }
     Navigator.pushNamedAndRemoveUntil(
       context,
       '/',
@@ -2544,7 +2547,11 @@ final bool hasLabel = label.isNotEmpty;
                     ),
                     const SizedBox(height: 12),
                     OutlinedButton(
-                      onPressed: _isSaving ? null : _handleLogout,
+                      onPressed: _isSaving
+                          ? null
+                          : () async {
+                              await _handleLogout();
+                            },
                       style: OutlinedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 14),
                         textStyle: const TextStyle(

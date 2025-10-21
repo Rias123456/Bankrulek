@@ -1,74 +1,121 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+
+import '../providers/auth_provider.dart';
 
 /// หน้าหลักของระบบ / Main entry screen for the portal
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
   @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  bool _hasRedirected = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      _attemptRedirect(context.read<AuthProvider>());
+    });
+  }
+
+  void _attemptRedirect(AuthProvider auth) {
+    if (_hasRedirected || !auth.isTutorLoggedIn) {
+      return;
+    }
+    _hasRedirected = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      Navigator.pushReplacementNamed(context, '/login-success');
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFFFE4E1),
-      body: SafeArea(
-        child: Stack(
-          children: [
-            // โลโก้ด้านบน
-            Align(
-              alignment: const Alignment(0, -0.9), // ค่า y = -1.0 คือบนสุด, 1.0 คือ ล่างสุด
-              child: CircleAvatar(
-                radius: 80,
-                backgroundImage: const AssetImage('assets/images/logo.png'),
-                backgroundColor: Colors.white,
-              ),
+    return Consumer<AuthProvider>(
+      builder: (BuildContext context, AuthProvider auth, Widget? _) {
+        _attemptRedirect(auth);
+        if (auth.isLoading) {
+          return const Scaffold(
+            backgroundColor: Color(0xFFFFE4E1),
+            body: Center(
+              child: CircularProgressIndicator(),
             ),
-
-            // ชื่อระบบ
-            Align(
-              alignment: const Alignment(0, -0.65),
-              child: const Text(
-                '',
-                style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black87,
+          );
+        }
+        return Scaffold(
+          backgroundColor: const Color(0xFFFFE4E1),
+          body: SafeArea(
+            child: Stack(
+              children: [
+                // โลโก้ด้านบน
+                Align(
+                  alignment: const Alignment(0, -0.9), // ค่า y = -1.0 คือบนสุด, 1.0 คือ ล่างสุด
+                  child: CircleAvatar(
+                    radius: 80,
+                    backgroundImage: const AssetImage('assets/images/logo.png'),
+                    backgroundColor: Colors.white,
+                  ),
                 ),
-              ),
-            ),
 
-            // ปุ่ม Admin Login
-            Align(
-              alignment: const Alignment(0, -0.2), // กำหนดตำแหน่งเอง (แก้ค่า y ได้)
-              child: _buildStyledButton(
-                context,
-                label: 'Admin Login',
-                icon: Icons.lock,
-                onPressed: () => Navigator.pushNamed(context, '/admin-login'),
-              ),
-            ),
+                // ชื่อระบบ
+                Align(
+                  alignment: const Alignment(0, -0.65),
+                  child: const Text(
+                    '',
+                    style: TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black87,
+                    ),
+                  ),
+                ),
 
-            // ปุ่ม ลงทะเบียนติวเตอร์
-            Align(
-              alignment: const Alignment(0, 0.0), // อยู่ตรงกลางจอ (y = 0)
-              child: _buildStyledButton(
-                context,
-                label: 'ลงทะเบียนติวเตอร์',
-                icon: Icons.person_add,
-                onPressed: () => Navigator.pushNamed(context, '/register-tutor'),
-              ),
-            ),
+                // ปุ่ม Admin Login
+                Align(
+                  alignment: const Alignment(0, -0.2), // กำหนดตำแหน่งเอง (แก้ค่า y ได้)
+                  child: _buildStyledButton(
+                    context,
+                    label: 'Admin Login',
+                    icon: Icons.lock,
+                    onPressed: () => Navigator.pushNamed(context, '/admin-login'),
+                  ),
+                ),
 
-            // ปุ่ม เข้าสู่ระบบติวเตอร์
-            Align(
-              alignment: const Alignment(0, 0.2), // อยู่ต่ำกว่า (แก้ y ได้)
-              child: _buildStyledButton(
-                context,
-                label: 'เข้าสู่ระบบติวเตอร์',
-                icon: Icons.login,
-                onPressed: () => Navigator.pushNamed(context, '/tutor-login'),
-              ),
+                // ปุ่ม ลงทะเบียนติวเตอร์
+                Align(
+                  alignment: const Alignment(0, 0.0), // อยู่ตรงกลางจอ (y = 0)
+                  child: _buildStyledButton(
+                    context,
+                    label: 'ลงทะเบียนติวเตอร์',
+                    icon: Icons.person_add,
+                    onPressed: () => Navigator.pushNamed(context, '/register-tutor'),
+                  ),
+                ),
+
+                // ปุ่ม เข้าสู่ระบบติวเตอร์
+                Align(
+                  alignment: const Alignment(0, 0.2), // อยู่ต่ำกว่า (แก้ y ได้)
+                  child: _buildStyledButton(
+                    context,
+                    label: 'เข้าสู่ระบบติวเตอร์',
+                    icon: Icons.login,
+                    onPressed: () => Navigator.pushNamed(context, '/tutor-login'),
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 

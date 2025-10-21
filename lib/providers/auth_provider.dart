@@ -233,8 +233,10 @@ class AuthProvider extends ChangeNotifier {
   bool _isLoading = true;
 
   /// ข้อมูล credential ของแอดมินตัวอย่าง / Sample admin credential
-  static const String _adminUsername = 'admin1234';
-  static const String _adminPassword = 'admin1234';
+  static const String _adminPassword = '******';
+
+  /// คีย์ไฟล์บันทึกเซสชันติวเตอร์ / File name for tutor session persistence
+  static const String _tutorSessionFileName = 'current_tutor_session.txt';
 
   /// สร้าง provider และโหลดข้อมูล / Constructor triggers loading data
   AuthProvider() {
@@ -260,6 +262,7 @@ class AuthProvider extends ChangeNotifier {
   void _initialize() {
     Future.microtask(() async {
       await _loadTutors();
+      await _restoreTutorSession();
     });
   }
 
@@ -279,6 +282,12 @@ class AuthProvider extends ChangeNotifier {
       );
     }
     return file;
+  }
+
+  /// ตำแหน่งไฟล์บันทึกเซสชัน / Resolve persistent session file location
+  Future<File> get _sessionFile async {
+    final Directory dir = await getApplicationDocumentsDirectory();
+    return File('${dir.path}/$_tutorSessionFileName');
   }
 
   Future<List<String>?> _loadInitialTemplateLines() async {
@@ -315,6 +324,35 @@ class AuthProvider extends ChangeNotifier {
     } finally {
       _isLoading = false;
       notifyListeners();
+    }
+  }
+
+  /// คืนค่าติวเตอร์ที่บันทึกไว้หากมี / Restore persisted tutor session if available
+  Future<void> _restoreTutorSession() async {
+    try {
+      final File sessionFile = await _sessionFile;
+      if (!await sessionFile.exists()) {
+        return;
+      }
+      final String savedEmail = (await sessionFile.readAsString()).trim();
+      if (savedEmail.isEmpty) {
+        return;
+      }
+      Tutor? match;
+      try {
+        match = _tutors.firstWhere(
+          (Tutor tutor) => tutor.email.toLowerCase() == savedEmail.toLowerCase(),
+        );
+      } on StateError {
+        match = null;
+      }
+      if (match != null) {
+        _currentTutor = match;
+        _isAdminLoggedIn = false;
+        notifyListeners();
+      }
+    } catch (e) {
+      debugPrint('Failed to restore tutor session: $e');
     }
   }
 
@@ -411,6 +449,7 @@ class AuthProvider extends ChangeNotifier {
       }
       _currentTutor = match;
       _isAdminLoggedIn = false;
+      await _persistTutorSession(match.email);
       notifyListeners();
       return null;
     } catch (e) {
@@ -420,12 +459,12 @@ class AuthProvider extends ChangeNotifier {
 
   /// ล็อกอินสำหรับแอดมิน / Admin login method
   Future<String?> loginAdmin({
-    required String username,
     required String password,
   }) async {
-    if (username == _adminUsername && password == _adminPassword) {
+    if (password == _adminPassword) {
       _isAdminLoggedIn = true;
       _currentTutor = null;
+      await _persistTutorSession(null);
       notifyListeners();
       return null;
     }
@@ -433,9 +472,10 @@ class AuthProvider extends ChangeNotifier {
   }
 
   /// ออกจากระบบทั้งหมด / Logout for both tutor and admin
-  void logout() {
+  Future<void> logout() async {
     _currentTutor = null;
     _isAdminLoggedIn = false;
+    await _persistTutorSession(null);
     notifyListeners();
   }
 
@@ -467,11 +507,16 @@ class AuthProvider extends ChangeNotifier {
       }
     }
     _tutors[index] = updatedTutor;
+    bool shouldPersistSession = false;
     if (_currentTutor != null &&
         _currentTutor!.email.toLowerCase() == originalEmail.toLowerCase()) {
       _currentTutor = updatedTutor;
+      shouldPersistSession = true;
     }
     await _saveTutors();
+    if (shouldPersistSession) {
+      await _persistTutorSession(updatedTutor.email);
+    }
     notifyListeners();
     return null;
   }
@@ -484,9 +529,32 @@ class AuthProvider extends ChangeNotifier {
     if (index == -1) {
       return false;
     }
+    final bool isCurrentTutor =
+        _currentTutor != null && _currentTutor!.email.toLowerCase() == email.toLowerCase();
     _tutors.removeAt(index);
     await _saveTutors();
+    if (isCurrentTutor) {
+      _currentTutor = null;
+      await _persistTutorSession(null);
+    }
     notifyListeners();
     return true;
+  }
+
+  /// บันทึกเซสชันติวเตอร์ลงไฟล์ / Persist tutor session email to file
+  Future<void> _persistTutorSession(String? email) async {
+    try {
+      final File sessionFile = await _sessionFile;
+      if (email == null || email.trim().isEmpty) {
+        if (await sessionFile.exists()) {
+          await sessionFile.delete();
+        }
+        return;
+      }
+      await sessionFile.create(recursive: true);
+      await sessionFile.writeAsString(email.trim());
+    } catch (e) {
+      debugPrint('Failed to persist tutor session: $e');
+    }
   }
 }

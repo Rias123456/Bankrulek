@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/auth_provider.dart';
@@ -15,14 +16,12 @@ class AdminLoginScreen extends StatefulWidget {
 class _AdminLoginScreenState extends State<AdminLoginScreen> {
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
 
-  final TextEditingController _usernameController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
 
   bool _isSubmitting = false;
 
   @override
   void dispose() {
-    _usernameController.dispose();
     _passwordController.dispose();
     super.dispose();
   }
@@ -34,7 +33,6 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
     setState(() => _isSubmitting = true);
     final AuthProvider authProvider = context.read<AuthProvider>();
     final String? error = await authProvider.loginAdmin(
-      username: _usernameController.text.trim(),
       password: _passwordController.text.trim(),
     );
     setState(() => _isSubmitting = false);
@@ -64,32 +62,12 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.center, // เปลี่ยนเป็น center
             children: [
-              // ช่องกรอกชื่อผู้ใช้
-              TextFormField(
-                controller: _usernameController,
-                decoration: InputDecoration(
-                  labelText: 'ชื่อผู้ใช้',
-                  prefixIcon: const Icon(Icons.person),
-                  filled: true,
-                  fillColor: Colors.white,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                validator: (String? value) {
-                  if (value == null || value.isEmpty) {
-                    return 'กรุณากรอกชื่อผู้ใช้';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 16),
-
-              // ช่องกรอกรหัสผ่าน (ไม่ซ่อน)
+              // ช่องกรอกรหัสผ่าน
               TextFormField(
                 controller: _passwordController,
                 decoration: InputDecoration(
                   labelText: 'รหัสผ่าน',
+                  hintText: '',
                   prefixIcon: const Icon(Icons.lock),
                   filled: true,
                   fillColor: Colors.white,
@@ -97,7 +75,10 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
                     borderRadius: BorderRadius.circular(12),
                   ),
                 ),
-                obscureText: false, // ✅ แก้ไม่ซ่อนรหัสผ่าน
+                obscureText: true,
+                obscuringCharacter: '*',
+                textInputAction: TextInputAction.done,
+                autofillHints: const <String>[AutofillHints.password],
                 validator: (String? value) {
                   if (value == null || value.isEmpty) {
                     return 'กรุณากรอกรหัสผ่าน';

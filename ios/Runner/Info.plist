@@ -4,16 +4,22 @@
 <dict>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
+
+	<!-- ✅ ชื่อแอปที่จะแสดงใต้ Icon -->
 	<key>CFBundleDisplayName</key>
-	<string>Bankrulek</string>
+	<string>บ้านคุณครูเล็ก</string>
+
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
+
+	<!-- ✅ ชื่อภายในของแอป ให้ตรงกับชื่อบน Icon -->
 	<key>CFBundleName</key>
-	<string>bankrulek</string>
+	<string>บ้านคุณครูเล็ก</string>
+
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
