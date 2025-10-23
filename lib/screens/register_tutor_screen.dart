@@ -1,12 +1,12 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:firebase_storage/firebase_storage.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
+import '../services/tutor_service.dart';
 import '../widgets/primary_button.dart';
 
 /// หน้าสำหรับสมัครติวเตอร์ใหม่
@@ -25,6 +25,8 @@ class _RegisterTutorScreenState extends State<RegisterTutorScreen> {
   final TextEditingController _lineIdController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
+
+  final TutorService _tutorService = TutorService();
 
   Uint8List? _profileImageBytes;
   String? _profileImageBase64;
@@ -64,50 +66,38 @@ class _RegisterTutorScreenState extends State<RegisterTutorScreen> {
     if (!_formKey.currentState!.validate()) return;
 
     setState(() => _isSubmitting = true);
+    UserCredential? credential;
     try {
-      final FirebaseFirestore firestore = FirebaseFirestore.instance;
       final String email = _emailController.text.trim();
+      final String password = _passwordController.text.trim();
 
-      final QuerySnapshot<Map<String, dynamic>> existing = await firestore
-          .collection('tutors')
-          .where('email', isEqualTo: email)
-          .limit(1)
-          .get();
-      if (existing.docs.isNotEmpty) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('อีเมลนี้ถูกใช้แล้ว')),
+      credential = await FirebaseAuth.instance.createUserWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+      final User? user = credential.user;
+      if (user == null) {
+        throw FirebaseAuthException(
+          code: 'user-null',
+          message: 'ไม่สามารถสร้างบัญชีได้',
         );
-        return;
       }
 
-      String? photoUrl;
-      if (_profileImageBytes != null) {
-        final String fileName =
-            'tutor_profiles/${DateTime.now().millisecondsSinceEpoch}_$email.jpg';
-        final Reference ref = FirebaseStorage.instance.ref(fileName);
-        final TaskSnapshot snapshot = await ref.putData(_profileImageBytes!);
-        photoUrl = await snapshot.ref.getDownloadURL();
-      }
-
-      final DocumentReference<Map<String, dynamic>> docRef =
-          await firestore.collection('tutors').add(<String, dynamic>{
-        'fullName': '',
-        'nickname': _nicknameController.text.trim(),
-        'phone': _phoneController.text.trim(),
-        'lineId': _lineIdController.text.trim(),
-        'email': email,
-        'password': _passwordController.text.trim(),
-        'photoUrl': photoUrl,
-        'currentStatus': '',
-        'travelTime': '',
-        'subjects': <String>[],
-        'schedule': <Map<String, dynamic>>[],
-        'createdAt': FieldValue.serverTimestamp(),
-      });
-
-      final SharedPreferences prefs = await SharedPreferences.getInstance();
-      await prefs.setString('tutorId', docRef.id);
+      await _tutorService.addTutor(
+        tutorId: user.uid,
+        fullName: '',
+        nickname: _nicknameController.text.trim(),
+        phone: _phoneController.text.trim(),
+        lineId: _lineIdController.text.trim(),
+        email: email,
+        password: password,
+        currentStatus: 'เป็นครูอยู่',
+        travelTime: '',
+        subjects: const <String>[],
+        schedule: const <Map<String, dynamic>>[],
+        scheduleSerialized: '',
+        profileImageBytes: _profileImageBytes,
+      );
 
       if (!mounted) return;
       Navigator.pushNamedAndRemoveUntil(
@@ -115,12 +105,41 @@ class _RegisterTutorScreenState extends State<RegisterTutorScreen> {
         '/login-success',
         (Route<dynamic> route) => false,
       );
+    } on FirebaseAuthException catch (error) {
+      if (!mounted) return;
+      String message;
+      switch (error.code) {
+        case 'email-already-in-use':
+          message = 'อีเมลนี้ถูกใช้แล้ว';
+          break;
+        case 'invalid-email':
+          message = 'รูปแบบอีเมลไม่ถูกต้อง';
+          break;
+        case 'weak-password':
+          message = 'รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร';
+          break;
+        default:
+          message = error.message ?? 'ไม่สามารถสมัครสมาชิกได้';
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
+      );
     } on FirebaseException catch (error) {
+      if (credential?.user != null) {
+        try {
+          await credential!.user!.delete();
+        } catch (_) {}
+      }
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(error.message ?? 'เกิดข้อผิดพลาด กรุณาลองอีกครั้ง')),
       );
     } catch (error) {
+      if (credential?.user != null) {
+        try {
+          await credential!.user!.delete();
+        } catch (_) {}
+      }
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('เกิดข้อผิดพลาด: $error')),

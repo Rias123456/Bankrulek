@@ -1,6 +1,7 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:provider/provider.dart';
+
+import '../providers/auth_provider.dart';
 import '../widgets/primary_button.dart';
 import 'login_success_screen.dart';
 
@@ -32,26 +33,19 @@ class _TutorLoginScreenState extends State<TutorLoginScreen> {
 
     setState(() => _isSubmitting = true);
     try {
-      final QuerySnapshot<Map<String, dynamic>> snapshot = await FirebaseFirestore
-          .instance
-          .collection('tutors')
-          .where('email', isEqualTo: _emailController.text.trim())
-          .where('password', isEqualTo: _passwordController.text.trim())
-          .limit(1)
-          .get();
-
-      if (snapshot.docs.isEmpty) {
-        if (!mounted) return;
+      final AuthProvider authProvider = context.read<AuthProvider>();
+      final String? error = await authProvider.loginTutor(
+        email: _emailController.text.trim(),
+        password: _passwordController.text.trim(),
+      );
+      if (!mounted) return;
+      if (error != null) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('ข้อมูลไม่ถูกต้อง กรุณาลองใหม่')), 
+          SnackBar(content: Text(error)),
         );
         return;
       }
 
-      final SharedPreferences prefs = await SharedPreferences.getInstance();
-      await prefs.setString('tutorId', snapshot.docs.first.id);
-
-      if (!mounted) return;
       Navigator.pushReplacementNamed(
         context,
         '/login-success',
@@ -60,15 +54,10 @@ class _TutorLoginScreenState extends State<TutorLoginScreen> {
           message: 'ยินดีต้อนรับกลับ! คุณสามารถกลับหน้าหลักได้จากปุ่มด้านล่าง',
         ),
       );
-    } on FirebaseException catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error.message ?? 'ไม่สามารถเข้าสู่ระบบได้')), 
-      );
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('เกิดข้อผิดพลาด: $error')), 
+        SnackBar(content: Text('เกิดข้อผิดพลาด: $error')),
       );
     } finally {
       if (mounted) {

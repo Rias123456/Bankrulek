@@ -3,14 +3,16 @@ import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_storage/firebase_storage.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:provider/provider.dart';
 
+import '../providers/auth_provider.dart';
+import '../services/tutor_service.dart';
 import '../widgets/primary_button.dart';
 
 enum ScheduleBlockType { teaching, unavailable }
@@ -192,6 +194,7 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
   List<String> _selectedSubjects = <String>[];
   String? _profileImageBase64;
   final ImagePicker _imagePicker = ImagePicker();
+  final TutorService _tutorService = TutorService();
   bool _isSaving = false;
   bool _isLoadingProfile = true;
   String? _tutorId;
@@ -373,47 +376,58 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
   }
 
   Future<void> _loadTutorProfile() async {
+    setState(() => _isLoadingProfile = true);
     try {
-      final SharedPreferences prefs = await SharedPreferences.getInstance();
-      final String? storedId = prefs.getString('tutorId');
-      if (storedId == null || storedId.isEmpty) {
-        if (!mounted) {
-          return;
-        }
-        setState(() {
-          _tutorId = null;
-          _tutorDocumentData = null;
-          _isLoadingProfile = false;
-        });
-        return;
-      }
+      final AuthProvider authProvider = context.read<AuthProvider>();
+      final Tutor? impersonatedTutor = authProvider.currentTutor;
+      String? tutorId = impersonatedTutor?.id;
+      Map<String, dynamic>? data;
 
-      final DocumentSnapshot<Map<String, dynamic>> snapshot = await FirebaseFirestore.instance
-          .collection('tutors')
-          .doc(storedId)
-          .get();
+      if (tutorId != null && tutorId.isNotEmpty) {
+        data = await _tutorService.fetchTutorDocument(tutorId);
+      } else {
+        final User? user = FirebaseAuth.instance.currentUser;
+        tutorId = user?.uid;
+        if (tutorId != null && tutorId.isNotEmpty) {
+          data = await _tutorService.fetchTutorDocument(tutorId);
+        }
+      }
 
       if (!mounted) {
         return;
       }
 
-      if (!snapshot.exists || snapshot.data() == null) {
+      if (tutorId == null || tutorId.isEmpty) {
         setState(() {
-          _tutorId = storedId;
+          _tutorId = null;
           _tutorDocumentData = null;
           _isLoadingProfile = false;
         });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('ไม่พบข้อมูลผู้สอน กรุณาเข้าสู่ระบบใหม่')),
+        );
         return;
       }
 
-      final Map<String, dynamic> data = snapshot.data()!;
+      if (data == null) {
+        setState(() {
+          _tutorId = tutorId;
+          _tutorDocumentData = null;
+          _isLoadingProfile = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('ไม่พบข้อมูลผู้สอนในระบบ')),
+        );
+        return;
+      }
+
       final List<String> subjects = (data['subjects'] as List<dynamic>? ?? <dynamic>[])
           .map((dynamic value) => value?.toString())
           .whereType<String>()
           .toList();
 
       setState(() {
-        _tutorId = snapshot.id;
+        _tutorId = tutorId;
         _email = data['email'] as String? ?? '';
         _password = data['password'] as String? ?? '';
         _photoUrl = data['photoUrl'] as String?;
@@ -424,8 +438,11 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
         _scheduleBlocks = <ScheduleBlock>[];
         _legacyScheduleNote = null;
         _nextBlockId = 1;
+        final String? scheduleSerialized = data['scheduleSerialized'] as String?;
         final dynamic scheduleRaw = data['schedule'];
-        if (scheduleRaw is String) {
+        if (scheduleSerialized != null && scheduleSerialized.isNotEmpty) {
+          _loadScheduleFromString(scheduleSerialized);
+        } else if (scheduleRaw is String) {
           _loadScheduleFromString(scheduleRaw);
         } else if (scheduleRaw is List) {
           _loadScheduleFromFirestore(scheduleRaw);
@@ -1738,7 +1755,7 @@ menuPosition = RelativeRect.fromLTRB(
         'travelTime': _travelDurationController.text.trim(),
         'subjects': List<String>.from(_selectedSubjects),
         'schedule': _serializeScheduleForFirestore(),
-        'updatedAt': FieldValue.serverTimestamp(),
+        'scheduleSerialized': _serializeScheduleBlocks(),
       };
 
       if (_email != null && _email!.isNotEmpty) {
@@ -1748,26 +1765,17 @@ menuPosition = RelativeRect.fromLTRB(
         updateData['password'] = _password;
       }
 
-      if (_newProfileImageBytes != null) {
-        final Reference ref = FirebaseStorage.instance
-            .ref('tutor_profiles/$_tutorId/${DateTime.now().millisecondsSinceEpoch}.jpg');
-        final TaskSnapshot snapshot = await ref.putData(_newProfileImageBytes!);
-        final String downloadUrl = await snapshot.ref.getDownloadURL();
-        updateData['photoUrl'] = downloadUrl;
-        _photoUrl = downloadUrl;
-        _profileImageBase64 = null;
-        _newProfileImageBytes = null;
-        _removeExistingPhoto = false;
-      } else if (_removeExistingPhoto) {
-        updateData['photoUrl'] = null;
-        _photoUrl = null;
-        _profileImageBase64 = null;
-      }
-
-      await FirebaseFirestore.instance
-          .collection('tutors')
-          .doc(_tutorId)
-          .set(updateData, SetOptions(merge: true));
+      final TutorUpdateResult result = await _tutorService.updateTutor(
+        tutorId: _tutorId!,
+        data: updateData,
+        newProfileImageBytes: _newProfileImageBytes,
+        removePhoto: _removeExistingPhoto,
+        existingPhotoPath: _tutorDocumentData?['photoPath'] as String?,
+      );
+      final bool removedPhoto = _removeExistingPhoto;
+      final String? nextPhotoUrl = result.photoUrl ?? (removedPhoto ? null : _photoUrl);
+      final String? nextPhotoPath = result.photoPath ??
+          (removedPhoto ? null : _tutorDocumentData?['photoPath'] as String?);
 
       if (!mounted) {
         return;
@@ -1776,10 +1784,14 @@ menuPosition = RelativeRect.fromLTRB(
       setState(() {
         _isSaving = false;
         _removeExistingPhoto = false;
+        _photoUrl = nextPhotoUrl;
+        _profileImageBase64 = null;
+        _newProfileImageBytes = null;
         _tutorDocumentData = <String, dynamic>{
           ...?_tutorDocumentData,
           ...updateData,
-          if (!updateData.containsKey('photoUrl')) 'photoUrl': _photoUrl,
+          'photoUrl': nextPhotoUrl,
+          'photoPath': nextPhotoPath,
         };
       });
 
@@ -1806,8 +1818,7 @@ menuPosition = RelativeRect.fromLTRB(
   }
 
   Future<void> _handleLogout() async {
-    final SharedPreferences prefs = await SharedPreferences.getInstance();
-    await prefs.remove('tutorId');
+    await context.read<AuthProvider>().logout();
     if (!mounted) {
       return;
     }
