@@ -1,7 +1,6 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-
-import '../providers/auth_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../widgets/primary_button.dart';
 import 'login_success_screen.dart';
 
@@ -32,29 +31,50 @@ class _TutorLoginScreenState extends State<TutorLoginScreen> {
     if (!_formKey.currentState!.validate()) return;
 
     setState(() => _isSubmitting = true);
-    final AuthProvider authProvider = context.read<AuthProvider>();
-    final String? error = await authProvider.loginTutor(
-      email: _emailController.text.trim(),
-      password: _passwordController.text.trim(),
-    );
-    setState(() => _isSubmitting = false);
+    try {
+      final QuerySnapshot<Map<String, dynamic>> snapshot = await FirebaseFirestore
+          .instance
+          .collection('tutors')
+          .where('email', isEqualTo: _emailController.text.trim())
+          .where('password', isEqualTo: _passwordController.text.trim())
+          .limit(1)
+          .get();
 
-    if (!mounted) return;
-    if (error != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error)),
+      if (snapshot.docs.isEmpty) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('ข้อมูลไม่ถูกต้อง กรุณาลองใหม่')), 
+        );
+        return;
+      }
+
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      await prefs.setString('tutorId', snapshot.docs.first.id);
+
+      if (!mounted) return;
+      Navigator.pushReplacementNamed(
+        context,
+        '/login-success',
+        arguments: const LoginSuccessArgs(
+          title: 'ล็อกอินสำเร็จ',
+          message: 'ยินดีต้อนรับกลับ! คุณสามารถกลับหน้าหลักได้จากปุ่มด้านล่าง',
+        ),
       );
-      return;
+    } on FirebaseException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.message ?? 'ไม่สามารถเข้าสู่ระบบได้')), 
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('เกิดข้อผิดพลาด: $error')), 
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isSubmitting = false);
+      }
     }
-
-    Navigator.pushReplacementNamed(
-      context,
-      '/login-success',
-      arguments: const LoginSuccessArgs(
-        title: 'ล็อกอินสำเร็จ',
-        message: 'ยินดีต้อนรับกลับ! คุณสามารถกลับหน้าหลักได้จากปุ่มด้านล่าง',
-      ),
-    );
   }
 
   @override

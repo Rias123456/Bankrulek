@@ -1,11 +1,12 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:provider/provider.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
-import '../providers/auth_provider.dart';
 import '../widgets/primary_button.dart';
 
 /// หน้าสำหรับสมัครติวเตอร์ใหม่
@@ -62,35 +63,73 @@ class _RegisterTutorScreenState extends State<RegisterTutorScreen> {
   Future<void> _handleRegister() async {
     if (!_formKey.currentState!.validate()) return;
 
-    // ✅ เช็กว่ามีการเลือกรูปหรือไม่
-    if (_profileImageBase64 == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('กรุณาเลือกรูปโปรไฟล์')),
-      );
-      return;
-    }
-
     setState(() => _isSubmitting = true);
-    final AuthProvider authProvider = context.read<AuthProvider>();
-    final String? error = await authProvider.registerTutor(
-      nickname: _nicknameController.text.trim(),
-      phoneNumber: _phoneController.text.trim(),
-      lineId: _lineIdController.text.trim(),
-      email: _emailController.text.trim(),
-      password: _passwordController.text.trim(),
-      profileImageBase64: _profileImageBase64,
-    );
-    setState(() => _isSubmitting = false);
+    try {
+      final FirebaseFirestore firestore = FirebaseFirestore.instance;
+      final String email = _emailController.text.trim();
 
-    if (!mounted) return;
-    if (error != null) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
-      return;
+      final QuerySnapshot<Map<String, dynamic>> existing = await firestore
+          .collection('tutors')
+          .where('email', isEqualTo: email)
+          .limit(1)
+          .get();
+      if (existing.docs.isNotEmpty) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('อีเมลนี้ถูกใช้แล้ว')),
+        );
+        return;
+      }
+
+      String? photoUrl;
+      if (_profileImageBytes != null) {
+        final String fileName =
+            'tutor_profiles/${DateTime.now().millisecondsSinceEpoch}_$email.jpg';
+        final Reference ref = FirebaseStorage.instance.ref(fileName);
+        final TaskSnapshot snapshot = await ref.putData(_profileImageBytes!);
+        photoUrl = await snapshot.ref.getDownloadURL();
+      }
+
+      final DocumentReference<Map<String, dynamic>> docRef =
+          await firestore.collection('tutors').add(<String, dynamic>{
+        'fullName': '',
+        'nickname': _nicknameController.text.trim(),
+        'phone': _phoneController.text.trim(),
+        'lineId': _lineIdController.text.trim(),
+        'email': email,
+        'password': _passwordController.text.trim(),
+        'photoUrl': photoUrl,
+        'currentStatus': '',
+        'travelTime': '',
+        'subjects': <String>[],
+        'schedule': <Map<String, dynamic>>[],
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      await prefs.setString('tutorId', docRef.id);
+
+      if (!mounted) return;
+      Navigator.pushNamedAndRemoveUntil(
+        context,
+        '/login-success',
+        (Route<dynamic> route) => false,
+      );
+    } on FirebaseException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.message ?? 'เกิดข้อผิดพลาด กรุณาลองอีกครั้ง')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('เกิดข้อผิดพลาด: $error')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isSubmitting = false);
+      }
     }
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('สมัครสำเร็จ')),
-    );
-    Navigator.pop(context);
   }
 
   @override
