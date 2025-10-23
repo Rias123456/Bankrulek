@@ -1179,13 +1179,9 @@ Widget _buildSubjectFilterSection() {
   }
 
   Widget _buildTutorTile(Tutor tutor) {
-    MemoryImage? avatarImage;
-    if (tutor.profileImageBase64 != null && tutor.profileImageBase64!.isNotEmpty) {
-      try {
-        avatarImage = MemoryImage(base64Decode(tutor.profileImageBase64!));
-      } catch (_) {
-        avatarImage = null;
-      }
+    ImageProvider<Object>? avatarImage;
+    if (tutor.profileImageUrl != null && tutor.profileImageUrl!.isNotEmpty) {
+      avatarImage = NetworkImage(tutor.profileImageUrl!);
     }
     final BorderRadius borderRadius = BorderRadius.circular(16);
     return Material(
