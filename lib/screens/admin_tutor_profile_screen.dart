@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 
+import '../models/tutor.dart';
 import '../providers/auth_provider.dart';
 
 class AdminTutorProfileScreen extends StatelessWidget {
@@ -27,6 +28,8 @@ class AdminTutorProfileScreen extends StatelessWidget {
       } catch (_) {
         avatarImage = null;
       }
+    } else if (tutor.photoUrl != null && tutor.photoUrl!.isNotEmpty) {
+      avatarImage = NetworkImage(tutor.photoUrl!);
     }
 
     return Scaffold(

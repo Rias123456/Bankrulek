@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../models/tutor.dart';
 import '../providers/auth_provider.dart';
 import 'home_screen.dart';
 
@@ -364,7 +365,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                             travelDuration: travelDuration,
                           );
                           final String? error = await authProvider.updateTutor(
-                            originalEmail: tutor.email,
                             updatedTutor: updatedTutor,
                           );
                           if (!mounted) {
@@ -514,7 +514,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   Future<void> _updateTutorStatus(Tutor tutor, String newStatus) async {
     final AuthProvider authProvider = context.read<AuthProvider>();
     final String? error = await authProvider.updateTutor(
-      originalEmail: tutor.email,
       updatedTutor: tutor.copyWith(status: newStatus),
     );
     if (!mounted) {
@@ -590,7 +589,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                                   setState(() => isSaving = true);
                                   final AuthProvider authProvider = this.context.read<AuthProvider>();
                                   final String? error = await authProvider.updateTutor(
-                                    originalEmail: tutor.email,
                                     updatedTutor: tutor.copyWith(travelDuration: value),
                                   );
                                   if (!mounted) {
@@ -1186,6 +1184,8 @@ Widget _buildSubjectFilterSection() {
       } catch (_) {
         avatarImage = null;
       }
+    } else if (tutor.photoUrl != null && tutor.photoUrl!.isNotEmpty) {
+      avatarImage = NetworkImage(tutor.photoUrl!);
     }
     final BorderRadius borderRadius = BorderRadius.circular(16);
     return Material(

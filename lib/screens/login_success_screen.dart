@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:math' as math;
+import 'dart:typed_data';
 import 'dart:async';
 
 
@@ -9,6 +10,7 @@ import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
+import '../models/tutor.dart';
 import '../providers/auth_provider.dart';
 import '../widgets/primary_button.dart';
 
@@ -190,6 +192,7 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
 
   List<String> _selectedSubjects = <String>[];
   String? _profileImageBase64;
+  String? _profilePhotoUrl;
   final ImagePicker _imagePicker = ImagePicker();
   bool _isSaving = false;
   String? _lastSyncedSignature;
@@ -377,17 +380,30 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
     _currentActivityController.text = tutor.currentActivity;
     _travelDurationController.text = tutor.travelDuration;
     _selectedSubjects = List<String>.from(tutor.subjects);
-    _loadScheduleFromString(tutor.teachingSchedule);
+    _loadSchedule(tutor);
     _profileImageBase64 = tutor.profileImageBase64;
+    _profilePhotoUrl = tutor.photoUrl;
     _lastSyncedSignature = signature;
   }
 
   String _buildTutorSignature(Tutor tutor) {
     final String subjectsSignature = tutor.subjects.join(',');
     final String scheduleSignature = tutor.teachingSchedule ?? '';
-    final String imageSignature = tutor.profileImageBase64 ?? '';
+    final String scheduleListSignature = tutor.schedule
+        .map((TutorScheduleEntry entry) =>
+            '${entry.day}|${entry.dayIndex ?? -1}|${entry.start}|${entry.end}|${entry.studentName ?? ''}')
+        .join(';');
+    final String imageSignature = '${tutor.profileImageBase64 ?? ''}|${tutor.photoUrl ?? ''}';
     return '${tutor.email}|${tutor.firstName}|${tutor.lastName}|${tutor.nickname}|${tutor.lineId}|${tutor.phoneNumber}|${tutor.currentActivity}|${tutor.status}|${tutor.travelDuration}|'
-        '$subjectsSignature|$scheduleSignature|$imageSignature';
+        '$subjectsSignature|$scheduleSignature|$scheduleListSignature|$imageSignature';
+  }
+
+  void _loadSchedule(Tutor tutor) {
+    if (tutor.schedule.isNotEmpty) {
+      _loadScheduleFromEntries(tutor.schedule);
+    } else {
+      _loadScheduleFromString(tutor.teachingSchedule);
+    }
   }
 
   void _loadScheduleFromString(String? raw) {
@@ -486,6 +502,122 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
 
     _legacyScheduleNote = trimmed;
   }
+
+  String _serializeScheduleBlocks() {
+    if (_scheduleBlocks.isEmpty) {
+      return '';
+    }
+    _sortBlocks();
+    final Map<String, dynamic> data = <String, dynamic>{
+      'format': 'grid-v1',
+      'startHour': _scheduleStartHour,
+      'endHour': _scheduleEndHour,
+      'minutesPerSlot': _minutesPerSlot,
+      'blocks': _scheduleBlocks.map((ScheduleBlock block) => block.toJson()).toList(),
+    };
+    return '$_scheduleSerializationPrefix${jsonEncode(data)}';
+  }
+
+  void _loadScheduleFromEntries(List<TutorScheduleEntry> entries) {
+    _scheduleBlocks = <ScheduleBlock>[];
+    _legacyScheduleNote = null;
+    _nextBlockId = 1;
+    int localId = 0;
+    final List<ScheduleBlock> parsed = <ScheduleBlock>[];
+    for (final TutorScheduleEntry entry in entries) {
+      final int dayIndex = _resolveDayIndexFromEntry(entry);
+      final int? startMinutes = _minutesOffset(entry.start);
+      final int? endMinutes = _minutesOffset(entry.end);
+      if (startMinutes == null || endMinutes == null) {
+        continue;
+      }
+      final int durationMinutes = endMinutes - startMinutes;
+      if (durationMinutes <= 0) {
+        continue;
+      }
+      final int startSlot = _clampInt(startMinutes // _minutesPerSlot, 0, _totalSlots - 1);
+      final int maxDuration = _totalSlots - startSlot;
+      if (maxDuration <= 0) {
+        continue;
+      }
+      final int resolvedDuration = _clampInt(
+        ((durationMinutes - 1) // _minutesPerSlot) + 1,
+        1,
+        maxDuration,
+      );
+      final DateTime dayDate = _pseudoDateForDayIndex(dayIndex);
+      if (!_canPlaceBlock(dayDate, startSlot, resolvedDuration, existing: parsed)) {
+        continue;
+      }
+      localId++;
+      parsed.add(
+        ScheduleBlock(
+          id: localId,
+          dayIndex: dayIndex,
+          startSlot: startSlot,
+          durationSlots: resolvedDuration,
+          type: ScheduleBlockType.teaching,
+          note: entry.studentName,
+          date: null,
+          isRecurring: true,
+        ),
+      );
+    }
+    parsed.sort((ScheduleBlock a, ScheduleBlock b) {
+      final int dayCompare = _resolvedDayIndex(a).compareTo(_resolvedDayIndex(b));
+      if (dayCompare != 0) {
+        return dayCompare;
+      }
+      return a.startSlot.compareTo(b.startSlot);
+    });
+    _scheduleBlocks = parsed;
+    _nextBlockId = parsed.isEmpty ? 1 : parsed.last.id + 1;
+  }
+
+  int _resolveDayIndexFromEntry(TutorScheduleEntry entry) {
+    if (entry.dayIndex != null && entry.dayIndex! >= 0 && entry.dayIndex! < _dayLabels.length) {
+      return entry.dayIndex!;
+    }
+    final int index = _dayLabels.indexOf(entry.day);
+    if (index != -1) {
+      return index;
+    }
+    return 0;
+  }
+
+  int? _minutesOffset(String? timeLabel) {
+    if (timeLabel == null) {
+      return null;
+    }
+    final RegExpMatch? match = RegExp(r'^(\d{1,2}):(\d{2})$').firstMatch(timeLabel.trim());
+    if (match == null) {
+      return null;
+    }
+    final int hour = int.tryParse(match.group(1) ?? '') ?? 0;
+    final int minute = int.tryParse(match.group(2) ?? '') ?? 0;
+    final int minutesFromStart = (hour - _scheduleStartHour) * 60 + minute;
+    return minutesFromStart < 0 ? 0 : minutesFromStart;
+  }
+
+  List<TutorScheduleEntry> _buildScheduleEntries() {
+    if (_scheduleBlocks.isEmpty) {
+      return const <TutorScheduleEntry>[];
+    }
+    return _scheduleBlocks.map((ScheduleBlock block) {
+      final int dayIndex = _clampInt(_resolvedDayIndex(block), 0, _dayLabels.length - 1);
+      final DateTime dayDate = _displayDateForBlock(block);
+      final DateTime start = _blockStartDateTime(dayDate, block.startSlot);
+      final DateTime end = _blockEndDateTime(dayDate, block.startSlot, block.durationSlots);
+      return TutorScheduleEntry(
+        day: _dayLabels[dayIndex],
+        dayIndex: dayIndex,
+        start: _formatTime(start),
+        end: _formatTime(end),
+        studentName: block.note,
+      );
+    }).toList();
+  }
+
 
   String _serializeScheduleBlocks() {
     if (_scheduleBlocks.isEmpty) {
@@ -1427,15 +1559,28 @@ menuPosition = RelativeRect.fromLTRB(
   }
 
 
-  ImageProvider<Object>? _buildProfileImage(String? base64Data) {
-    if (base64Data == null || base64Data.isEmpty) {
-      return null;
+  ImageProvider<Object>? _buildProfileImage(Tutor tutor) {
+    if (_profileImageBase64 != null && _profileImageBase64!.isNotEmpty) {
+      try {
+        return MemoryImage(base64Decode(_profileImageBase64!));
+      } catch (_) {
+        // ignore and try fallback
+      }
     }
-    try {
-      return MemoryImage(base64Decode(base64Data));
-    } catch (_) {
-      return null;
+    if (_profilePhotoUrl != null && _profilePhotoUrl!.isNotEmpty) {
+      return NetworkImage(_profilePhotoUrl!);
     }
+    if (tutor.profileImageBase64 != null && tutor.profileImageBase64!.isNotEmpty) {
+      try {
+        return MemoryImage(base64Decode(tutor.profileImageBase64!));
+      } catch (_) {
+        // ignore and try url fallback
+      }
+    }
+    if (tutor.photoUrl != null && tutor.photoUrl!.isNotEmpty) {
+      return NetworkImage(tutor.photoUrl!);
+    }
+    return null;
   }
 
   Future<void> _handleSave() async {
@@ -1464,6 +1609,38 @@ menuPosition = RelativeRect.fromLTRB(
     final String parsedLastName =
         nameParts.length > 1 ? nameParts.sublist(1).join(' ') : '';
 
+    final List<TutorScheduleEntry> scheduleEntries = _buildScheduleEntries();
+    final String serializedSchedule = _serializeScheduleBlocks();
+    final String? schedulePayload = () {
+      if (serializedSchedule.isNotEmpty) {
+        return serializedSchedule;
+      }
+      if (_legacyScheduleNote != null && _legacyScheduleNote!.trim().isNotEmpty) {
+        return _legacyScheduleNote!.trim();
+      }
+      return null;
+    }();
+
+    String? nextBase64 = _profileImageBase64;
+    String? nextPhotoUrl = _profilePhotoUrl ?? currentTutor.photoUrl;
+    Uint8List? uploadBytes;
+
+    if (nextBase64 != null && nextBase64.isEmpty) {
+      nextBase64 = '';
+      nextPhotoUrl = null;
+    } else if (nextBase64 != null &&
+        nextBase64.isNotEmpty &&
+        nextBase64 != currentTutor.profileImageBase64) {
+      try {
+        uploadBytes = base64Decode(nextBase64);
+      } catch (_) {
+        uploadBytes = null;
+      }
+      nextPhotoUrl = null;
+    } else {
+      nextBase64 = currentTutor.profileImageBase64;
+    }
+
     final Tutor updatedTutor = currentTutor.copyWith(
       firstName: parsedFirstName,
       lastName: parsedLastName,
@@ -1473,24 +1650,16 @@ menuPosition = RelativeRect.fromLTRB(
       lineId: _lineIdController.text.trim(),
       travelDuration: _travelDurationController.text.trim(),
       subjects: List<String>.from(_selectedSubjects),
-      profileImageBase64:
-          _profileImageBase64 == null || _profileImageBase64!.isEmpty ? null : _profileImageBase64,
-      teachingSchedule: () {
-        final String serializedSchedule = _serializeScheduleBlocks();
-        if (serializedSchedule.isNotEmpty) {
-          return serializedSchedule;
-        }
-        if (_legacyScheduleNote != null && _legacyScheduleNote!.trim().isNotEmpty) {
-          return _legacyScheduleNote!.trim();
-        }
-        return null;
-      }(),
-      overrideTeachingSchedule: true,
+      teachingSchedule: schedulePayload,
+      profileImageBase64: nextBase64,
+      photoUrl: nextPhotoUrl,
+      schedule: scheduleEntries,
     );
 
     final String? error = await authProvider.updateTutor(
-      originalEmail: currentTutor.email,
       updatedTutor: updatedTutor,
+      photoBytes: uploadBytes,
+      photoBase64: nextBase64,
     );
 
     if (!mounted) {
@@ -1506,7 +1675,11 @@ menuPosition = RelativeRect.fromLTRB(
       return;
     }
 
-    _lastSyncedSignature = _buildTutorSignature(updatedTutor);
+    final Tutor? refreshedTutor = authProvider.currentTutor;
+    _profilePhotoUrl = refreshedTutor?.photoUrl ?? nextPhotoUrl;
+    _profileImageBase64 = refreshedTutor?.profileImageBase64 ?? nextBase64;
+    _lastSyncedSignature = _buildTutorSignature(refreshedTutor ?? updatedTutor);
+
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('บันทึกข้อมูลเรียบร้อยแล้ว')),
     );
@@ -1638,6 +1811,7 @@ menuPosition = RelativeRect.fromLTRB(
       }
       setState(() {
         _profileImageBase64 = encoded;
+        _profilePhotoUrl = null;
       });
     } catch (error) {
       if (!mounted) {
@@ -1652,6 +1826,7 @@ menuPosition = RelativeRect.fromLTRB(
   void _removeProfileImage() {
     setState(() {
       _profileImageBase64 = '';
+      _profilePhotoUrl = null;
     });
   }
 
@@ -1674,7 +1849,8 @@ menuPosition = RelativeRect.fromLTRB(
                   _pickProfileImage();
                 },
               ),
-              if (_profileImageBase64 != null && _profileImageBase64!.isNotEmpty)
+              if ((_profileImageBase64 != null && _profileImageBase64!.isNotEmpty) ||
+                  (_profilePhotoUrl != null && _profilePhotoUrl!.isNotEmpty))
                 ListTile(
                   leading: const Icon(Icons.delete_outline),
                   title: const Text('ลบรูปโปรไฟล์'),
@@ -1692,9 +1868,7 @@ menuPosition = RelativeRect.fromLTRB(
   }
 
   Widget _buildHeaderSection(Tutor tutor) {
-    final String? imageData =
-        _profileImageBase64 ?? tutor.profileImageBase64;
-    final ImageProvider<Object>? imageProvider = _buildProfileImage(imageData);
+    final ImageProvider<Object>? imageProvider = _buildProfileImage(tutor);
     final String nicknameDisplay =
         _nicknameController.text.trim().isEmpty ? tutor.nickname : _nicknameController.text.trim();
     return Column(
