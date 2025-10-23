@@ -1,562 +1,275 @@
-import 'dart:async';
-import 'dart:convert';
-import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
-import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
-/// คลาสข้อมูลสำหรับเก็บรายละเอียดของติวเตอร์ / Data model for tutors
-class Tutor {
-  /// ชื่อจริง / First name
-  final String firstName;
+import '../models/tutor.dart';
+import '../services/tutor_service.dart';
 
-  /// นามสกุล / Last name
-  final String lastName;
-
-  /// สิ่งที่กำลังทำอยู่ปัจจุบัน / Current activity or occupation
-  final String currentActivity;
-
-  /// ชื่อเล่น / Nickname
-  final String nickname;
-
-  /// เบอร์โทรศัพท์ที่ติดต่อได้ / Contact phone number
-  final String phoneNumber;
-
-  /// ไอดีไลน์ / Line ID
-  final String lineId;
-
-  /// อีเมลสำหรับล็อกอิน / Login email
-  final String email;
-
-  /// รหัสผ่านแบบ plaintext (ตัวอย่างเท่านั้น) / Plaintext password (for demo only)
-  final String password;
-
-  /// สถานะของติวเตอร์ / Tutor status label
-  final String status;
-
-  /// ระยะเวลาในการเดินทางไปสอน / Travel duration to tutoring location
-  final String travelDuration;
-
-  /// ข้อมูลรูปโปรไฟล์แบบ Base64 / Base64-encoded profile image data
-  final String? profileImageBase64;
-
-  /// วิชาที่สามารถสอนได้ พร้อมระดับชั้น / Subjects with the supported grade levels
-  final List<String> subjects;
-
-  /// รายละเอียดตารางสอน / Teaching schedule details
-  final String? teachingSchedule;
-
-  /// ค่าเริ่มต้นของสถานะ / Default tutor status label
-  static const String defaultStatus = 'เป็นครูอยู่';
-
-  /// รายการสถานะที่รองรับ / Supported tutor status options
-  static const List<String> statuses = <String>[
-    defaultStatus,
-    'พักการสอน',
-  ];
-
-  /// ค่าเริ่มต้นของระยะเวลาเดินทาง / Default travel duration label
-  static const String defaultTravelDuration = '';
-
-  const Tutor({
-    this.firstName = '',
-    this.lastName = '',
-    this.currentActivity = '',
-    required this.nickname,
-    required this.phoneNumber,
-    required this.lineId,
-    required this.email,
-    required this.password,
-    required this.status,
-    required this.travelDuration,
-    this.profileImageBase64,
-    this.subjects = const <String>[],
-    this.teachingSchedule,
-  });
-
-  /// แปลงเป็นข้อความบันทึก / Convert data into a readable storage line
-  String toStorageLine() {
-    String sanitize(String value) => value.replaceAll('\n', ' ').replaceAll('|', '/');
-    final String firstNameSnippet = firstName.isNotEmpty ? sanitize(firstName) : '';
-    final String lastNameSnippet = lastName.isNotEmpty ? sanitize(lastName) : '';
-    final String imageSnippet =
-        profileImageBase64 != null && profileImageBase64!.isNotEmpty ? sanitize(profileImageBase64!) : '';
-    final String subjectsSnippet = subjects.isNotEmpty
-        ? sanitize(subjects.join(', '))
-        : '';
-    final String scheduleSnippet =
-        teachingSchedule != null && teachingSchedule!.isNotEmpty ? sanitize(teachingSchedule!) : '';
-    final String statusSnippet = sanitize(status.isNotEmpty ? status : defaultStatus);
-    final String travelSnippet = travelDuration.isNotEmpty ? sanitize(travelDuration) : '';
-    final String currentActivitySnippet =
-        currentActivity.isNotEmpty ? sanitize(currentActivity) : '';
-    return 'ชื่อจริง: $firstNameSnippet | นามสกุล: $lastNameSnippet | ชื่อเล่น: ${sanitize(nickname)} | '
-        'ไอดีไลน์: ${sanitize(lineId)} | เบอร์โทร: ${sanitize(phoneNumber)} | อีเมล: ${sanitize(email)} | '
-        'รหัสผ่าน: ${sanitize(password)} | สิ่งที่กำลังทำในปัจจุบัน: $currentActivitySnippet | '
-        'สถานะ: $statusSnippet | ระยะเวลาเดินทาง: $travelSnippet | รูปโปรไฟล์: $imageSnippet | วิชาที่สอน: $subjectsSnippet | '
-        'ตารางสอน: $scheduleSnippet';
-  }
-
-  /// สร้าง Tutor จากบรรทัดข้อความ / Create a Tutor from a storage line
-  static Tutor? fromStorageLine(String line) {
-    final String trimmed = line.trim();
-    if (trimmed.isEmpty) {
-      return null;
-    }
-    final List<String> parts =
-        trimmed.split('|').map((String part) => part.trim()).where((String part) => part.isNotEmpty).toList();
-    if (parts.length < 6) {
-      return null;
-    }
-
-    String? findValue(String label) {
-      try {
-        final String match =
-            parts.firstWhere((String part) => part.startsWith('$label:'), orElse: () => '');
-        if (match.isEmpty) {
-          return null;
-        }
-        final int colonIndex = match.indexOf(':');
-        if (colonIndex == -1) {
-          return null;
-        }
-        return match.substring(colonIndex + 1).trim();
-      } catch (_) {
-        return null;
-      }
-    }
-
-    final String? firstName = findValue('ชื่อจริง');
-    final String? lastName = findValue('นามสกุล');
-    final String? nickname = findValue('ชื่อเล่น');
-    final String? phoneNumber = findValue('เบอร์โทร') ?? findValue('เบอร์โทรศัพท์');
-    final String? lineId = findValue('ไอดีไลน์');
-    final String? email = findValue('อีเมล');
-    final String? password = findValue('รหัสผ่าน');
-    final String? currentActivity = findValue('สิ่งที่กำลังทำในปัจจุบัน');
-    final String? rawStatus = findValue('สถานะ');
-    final String? rawTravel = findValue('ระยะเวลาเดินทาง');
-    String statusValue = rawStatus == null || rawStatus.trim().isEmpty
-        ? defaultStatus
-        : rawStatus.trim();
-    String travelDurationValue = defaultTravelDuration;
-    if (rawTravel != null && rawTravel.trim().isNotEmpty) {
-      final String trimmedTravel = rawTravel.trim();
-      if (statuses.contains(trimmedTravel) || trimmedTravel == defaultStatus) {
-        statusValue = statusValue.isEmpty || statusValue == defaultStatus
-            ? trimmedTravel
-            : statusValue;
-      } else {
-        travelDurationValue = trimmedTravel;
-      }
-    }
-    final String? profileImageBase64 = findValue('รูปโปรไฟล์');
-    final String? subjectsValue = findValue('วิชาที่สอน');
-    final List<String> subjects = subjectsValue == null || subjectsValue.trim().isEmpty
-        ? <String>[]
-        : subjectsValue
-            .split(',')
-            .map((String subject) => subject.trim())
-            .where((String subject) => subject.isNotEmpty)
-            .toList();
-    final String? teachingScheduleValue = findValue('ตารางสอน');
-    final String? teachingSchedule =
-        teachingScheduleValue == null || teachingScheduleValue.trim().isEmpty ? null : teachingScheduleValue;
-
-    if (nickname == null || lineId == null || email == null || password == null) {
-      return null;
-    }
-    return Tutor(
-      firstName: firstName ?? '',
-      lastName: lastName ?? '',
-      nickname: nickname,
-      phoneNumber: phoneNumber ?? '',
-      lineId: lineId,
-      email: email,
-      password: password,
-      currentActivity: currentActivity ?? '',
-      status: statusValue,
-      travelDuration: travelDurationValue,
-      profileImageBase64: profileImageBase64,
-      subjects: subjects,
-      teachingSchedule: teachingSchedule,
-    );
-  }
-
-  /// สร้างอ็อบเจ็กต์ใหม่โดยคงค่าเดิม / Copy with new field values
-  Tutor copyWith({
-    String? firstName,
-    String? lastName,
-    String? currentActivity,
-    String? nickname,
-    String? phoneNumber,
-    String? lineId,
-    String? email,
-    String? password,
-    String? status,
-    String? travelDuration,
-    String? profileImageBase64,
-    List<String>? subjects,
-    String? teachingSchedule,
-    bool overrideTeachingSchedule = false,
-  }) {
-    return Tutor(
-      firstName: firstName ?? this.firstName,
-      lastName: lastName ?? this.lastName,
-      currentActivity: currentActivity ?? this.currentActivity,
-      nickname: nickname ?? this.nickname,
-      phoneNumber: phoneNumber ?? this.phoneNumber,
-      lineId: lineId ?? this.lineId,
-      email: email ?? this.email,
-      password: password ?? this.password,
-      status: status ?? this.status,
-      travelDuration: travelDuration ?? this.travelDuration,
-      profileImageBase64: profileImageBase64 ?? this.profileImageBase64,
-      subjects: subjects ?? this.subjects,
-      teachingSchedule:
-          overrideTeachingSchedule ? teachingSchedule : teachingSchedule ?? this.teachingSchedule,
-    );
-  }
-}
-
-/// ตัวจัดการสถานะการยืนยันตัวตน / Authentication state manager
 class AuthProvider extends ChangeNotifier {
-  /// รายชื่อผู้สอนทั้งหมด / List of registered tutors
-  final List<Tutor> _tutors = [];
-
-  /// ติวเตอร์ที่กำลังล็อกอินอยู่ / Currently authenticated tutor
-  Tutor? _currentTutor;
-
-  /// สถานะว่าแอดมินล็อกอินแล้วหรือไม่ / Flag for admin login state
-  bool _isAdminLoggedIn = false;
-
-  /// สถานะการโหลดข้อมูลไฟล์ / Loading flag for IO operations
-  bool _isLoading = true;
-
-  /// ข้อมูล credential ของแอดมินตัวอย่าง / Sample admin credential
-  static const String _adminPassword = '******';
-
-  /// คีย์ไฟล์บันทึกเซสชันติวเตอร์ / File name for tutor session persistence
-  static const String _tutorSessionFileName = 'current_tutor_session.txt';
-
-  /// สร้าง provider และโหลดข้อมูล / Constructor triggers loading data
-  AuthProvider() {
-    _initialize();
+  AuthProvider({required TutorService tutorService})
+      : _tutorService = tutorService {
+    _init();
   }
 
-  /// ส่งออกสถานะโหลด / Public getter for loading state
-  bool get isLoading => _isLoading;
+  static const String _adminPassword = '******';
+  static const String _sessionKey = 'currentTutorId';
 
-  /// ส่งออกรายชื่อติวเตอร์แบบอ่านอย่างเดียว / Unmodifiable tutor list
+  final TutorService _tutorService;
+  final List<Tutor> _tutors = <Tutor>[];
+
+  SharedPreferences? _prefs;
+  Tutor? _currentTutor;
+  bool _isAdminLoggedIn = false;
+  bool _isInitializing = true;
+  bool _isLoading = false;
+
+  bool get isLoading => _isInitializing || _isLoading;
   List<Tutor> get tutors => List.unmodifiable(_tutors);
-
-  /// ส่งออกผู้ใช้ติวเตอร์ปัจจุบัน / Currently logged-in tutor
   Tutor? get currentTutor => _currentTutor;
-
-  /// ตรวจสอบว่าติวเตอร์ล็อกอินหรือยัง / Whether a tutor is logged in
   bool get isTutorLoggedIn => _currentTutor != null;
-
-  /// ตรวจสอบว่าแอดมินล็อกอินหรือยัง / Whether admin is logged in
   bool get isAdminLoggedIn => _isAdminLoggedIn;
 
-  /// ฟังก์ชันเริ่มต้นโหลดข้อมูล / Kick-start file loading
-  void _initialize() {
-    Future.microtask(() async {
-      await _loadTutors();
-      await _restoreTutorSession();
-    });
-  }
-
-  /// ตำแหน่งไฟล์ data.txt ในอุปกรณ์ / Resolve data.txt path inside device storage
-  Future<File> get _dataFile async {
-    final Directory dir = await getApplicationDocumentsDirectory();
-    final File file = File('${dir.path}/data.txt');
-    if (!await file.exists()) {
-      await file.create(recursive: true);
-      final List<String>? templateLines = await _loadInitialTemplateLines();
-      await file.writeAsString(
-        _generateFileContent(
-          _tutors,
-          file.path,
-          initialLines: templateLines,
-        ),
-      );
-    }
-    return file;
-  }
-
-  /// ตำแหน่งไฟล์บันทึกเซสชัน / Resolve persistent session file location
-  Future<File> get _sessionFile async {
-    final Directory dir = await getApplicationDocumentsDirectory();
-    return File('${dir.path}/$_tutorSessionFileName');
-  }
-
-  Future<List<String>?> _loadInitialTemplateLines() async {
+  Future<void> _init() async {
     try {
-      final String raw = await rootBundle.loadString('assets/data/initial_tutors.txt');
-      final List<String> lines = const LineSplitter()
-          .convert(raw)
-          .map((String line) => line.trimRight())
-          .toList();
-      return lines.where((String element) => element.trim().isNotEmpty).isEmpty ? null : lines;
-    } catch (_) {
-      return null;
-    }
-  }
-
-  /// โหลดรายชื่อติวเตอร์จากไฟล์ / Load tutors from text file
-  Future<void> _loadTutors() async {
-    _isLoading = true;
-    notifyListeners();
-    try {
-      final File file = await _dataFile;
-      final List<String> lines = await file.readAsLines();
-      _tutors
-        ..clear()
-        ..addAll(
-          lines
-              .map((String line) => line.trim())
-              .where((String line) => line.isNotEmpty && !line.startsWith('#'))
-              .map<Tutor?>((String line) => Tutor.fromStorageLine(line))
-              .whereType<Tutor>(),
-        );
-    } catch (e) {
-      debugPrint('Failed to load tutors: $e');
+      _prefs = await SharedPreferences.getInstance();
+      await _loadTutorsInternal();
+      final String? storedId = _prefs?.getString(_sessionKey);
+      if (storedId != null && storedId.isNotEmpty) {
+        _currentTutor = _findTutorById(storedId) ??
+            await _tutorService.fetchTutorById(storedId);
+      }
+    } catch (error, stackTrace) {
+      debugPrint('Failed to initialise AuthProvider: $error');
+      debugPrint('$stackTrace');
     } finally {
-      _isLoading = false;
+      _isInitializing = false;
       notifyListeners();
     }
   }
 
-  /// คืนค่าติวเตอร์ที่บันทึกไว้หากมี / Restore persisted tutor session if available
-  Future<void> _restoreTutorSession() async {
+  Future<void> refreshTutors() async {
+    _setLoading(true);
     try {
-      final File sessionFile = await _sessionFile;
-      if (!await sessionFile.exists()) {
-        return;
+      await _loadTutorsInternal();
+      if (_currentTutor != null) {
+        final Tutor? refreshed = _findTutorById(_currentTutor!.id);
+        if (refreshed != null) {
+          _currentTutor = refreshed;
+        }
       }
-      final String savedEmail = (await sessionFile.readAsString()).trim();
-      if (savedEmail.isEmpty) {
-        return;
-      }
-      Tutor? match;
-      try {
-        match = _tutors.firstWhere(
-          (Tutor tutor) => tutor.email.toLowerCase() == savedEmail.toLowerCase(),
-        );
-      } on StateError {
-        match = null;
-      }
-      if (match != null) {
-        _currentTutor = match;
-        _isAdminLoggedIn = false;
-        notifyListeners();
-      }
-    } catch (e) {
-      debugPrint('Failed to restore tutor session: $e');
+    } catch (error, stackTrace) {
+      debugPrint('Failed to refresh tutors: $error');
+      debugPrint('$stackTrace');
+    } finally {
+      _setLoading(false);
     }
   }
 
-  /// บันทึกรายชื่อติวเตอร์ลงไฟล์ / Persist tutors into text file
-  Future<void> _saveTutors() async {
-    try {
-      final File file = await _dataFile;
-      final String content = _generateFileContent(_tutors, file.path);
-      await file.writeAsString(content);
-    } catch (e) {
-      debugPrint('Failed to save tutors: $e');
-    }
-  }
-
-  /// สร้างข้อความสำหรับบันทึกไฟล์ / Build file content with header instructions
-  String _generateFileContent(
-    List<Tutor> tutors,
-    String filePath, {
-    List<String>? initialLines,
-  }) {
-    final String normalizedPath = filePath.replaceAll('\\', '/');
-    final StringBuffer buffer = StringBuffer()
-      ..writeln('# วิธีดูข้อมูลที่จัดเก็บไว้: เปิดไฟล์นี้ด้วยแอปจัดการไฟล์หรือเทอร์มินัล')
-      ..writeln('# ที่อยู่ไฟล์: $normalizedPath')
-      ..writeln('# ตัวอย่างคำสั่ง: cat "$normalizedPath"')
-      ..writeln('# ฟอร์แมตข้อมูล: ชื่อจริง | นามสกุล | ชื่อเล่น | ไอดีไลน์ | เบอร์โทร | อีเมล | รหัสผ่าน | สิ่งที่กำลังทำในปัจจุบัน | สถานะ | ระยะเวลาเดินทาง | รูปโปรไฟล์ (Base64) | วิชาที่สอน | ตารางสอน')
-      ..writeln();
-    if (initialLines != null && initialLines.isNotEmpty) {
-      for (final String line in initialLines) {
-        buffer.writeln(line);
-      }
-      if (!buffer.toString().endsWith('\n\n')) {
-        buffer.writeln();
-      }
-    }
-    for (final Tutor tutor in tutors) {
-      buffer.writeln(tutor.toStorageLine());
-    }
-    return buffer.toString();
-  }
-
-  /// สมัครสมาชิกติวเตอร์ / Register new tutor
   Future<String?> registerTutor({
+    String fullName = '',
     required String nickname,
     required String phoneNumber,
     required String lineId,
     required String email,
     required String password,
-    String? profileImageBase64,
+    String currentActivity = '',
+    String status = Tutor.defaultStatus,
+    String travelTime = Tutor.defaultTravelDuration,
+    List<String> subjects = const <String>[],
+    List<TutorScheduleEntry> schedule = const <TutorScheduleEntry>[],
+    Uint8List? photoBytes,
+    String? photoBase64,
   }) async {
-    final bool alreadyExists =
-        _tutors.any((Tutor tutor) => tutor.email.toLowerCase() == email.toLowerCase());
-    if (alreadyExists) {
+    final String normalizedEmail = email.trim().toLowerCase();
+    final bool emailExists = _tutors.any(
+      (Tutor tutor) => tutor.email.toLowerCase() == normalizedEmail,
+    );
+    if (emailExists) {
       return 'อีเมลนี้ถูกใช้แล้ว / Email already registered';
     }
-    final Tutor tutor = Tutor(
-      nickname: nickname,
-      phoneNumber: phoneNumber,
-      lineId: lineId,
-      email: email,
-      password: password,
-      status: Tutor.defaultStatus,
-      travelDuration: Tutor.defaultTravelDuration,
-      profileImageBase64: profileImageBase64,
-      subjects: const <String>[],
-      teachingSchedule: null,
-    );
-    _tutors.add(tutor);
-    await _saveTutors();
-    notifyListeners();
-    return null;
+    _setLoading(true);
+    try {
+      final Tutor tutor = await _tutorService.addTutor(
+        fullName: fullName,
+        nickname: nickname,
+        phoneNumber: phoneNumber,
+        lineId: lineId,
+        email: email,
+        password: password,
+        currentActivity: currentActivity,
+        status: status,
+        travelTime: travelTime,
+        subjects: subjects,
+        schedule: schedule,
+        photoBytes: photoBytes,
+        photoBase64: photoBase64,
+      );
+      _tutors.add(tutor);
+      return null;
+    } catch (error, stackTrace) {
+      debugPrint('Failed to register tutor: $error');
+      debugPrint('$stackTrace');
+      return 'เกิดข้อผิดพลาด ไม่สามารถสมัครสมาชิกได้';
+    } finally {
+      _setLoading(false);
+    }
   }
 
-  /// ล็อกอินสำหรับติวเตอร์ / Tutor login method
   Future<String?> loginTutor({
     required String email,
     required String password,
   }) async {
+    _setLoading(true);
     try {
-      if (_isLoading) {
-        await _loadTutors();
-      }
-      Tutor? match;
-      try {
-        match = _tutors.firstWhere(
-          (Tutor tutor) =>
-              tutor.email.toLowerCase() == email.toLowerCase() && tutor.password == password,
-        );
-      } on StateError {
-        match = null;
-      }
-      if (match == null) {
+      final Tutor? tutor = await _tutorService.fetchTutorByEmailAndPassword(
+        email,
+        password,
+      );
+      if (tutor == null) {
         return 'ไม่พบผู้ใช้ / Invalid email or password';
       }
-      _currentTutor = match;
+      _currentTutor = tutor;
       _isAdminLoggedIn = false;
-      await _persistTutorSession(match.email);
-      notifyListeners();
+      await _persistTutorId(tutor.id);
+      if (_findTutorById(tutor.id) == null) {
+        _tutors.add(tutor);
+      }
       return null;
-    } catch (e) {
-      return 'เกิดข้อผิดพลาด ${e.toString()} / Unexpected error';
+    } catch (error, stackTrace) {
+      debugPrint('Failed to login tutor: $error');
+      debugPrint('$stackTrace');
+      return 'เกิดข้อผิดพลาด ${error.toString()}';
+    } finally {
+      _setLoading(false);
     }
   }
 
-  /// ล็อกอินสำหรับแอดมิน / Admin login method
-  Future<String?> loginAdmin({
-    required String password,
-  }) async {
+  Future<String?> loginAdmin({required String password}) async {
     if (password == _adminPassword) {
       _isAdminLoggedIn = true;
       _currentTutor = null;
-      await _persistTutorSession(null);
+      await _persistTutorId(null);
       notifyListeners();
       return null;
     }
     return 'ข้อมูลไม่ถูกต้อง / Invalid admin credentials';
   }
 
-  /// ออกจากระบบทั้งหมด / Logout for both tutor and admin
   Future<void> logout() async {
     _currentTutor = null;
     _isAdminLoggedIn = false;
-    await _persistTutorSession(null);
+    await _persistTutorId(null);
     notifyListeners();
   }
 
-  /// ให้แอดมินเลือกดูโปรไฟล์ติวเตอร์ / Allow admin to open a tutor profile
-  void impersonateTutor(Tutor tutor) {
-    _currentTutor = tutor;
-    notifyListeners();
-  }
-
-  /// อัปเดตข้อมูลติวเตอร์ / Update tutor information
   Future<String?> updateTutor({
-    required String originalEmail,
     required Tutor updatedTutor,
+    Uint8List? photoBytes,
+    String? photoBase64,
   }) async {
-    final int index = _tutors.indexWhere(
-      (Tutor tutor) => tutor.email.toLowerCase() == originalEmail.toLowerCase(),
-    );
-    if (index == -1) {
+    final Tutor? existing = _findTutorById(updatedTutor.id);
+    if (existing == null) {
       return 'ไม่พบผู้ใช้ / Tutor not found';
     }
-    final String newEmail = updatedTutor.email.trim();
-    final bool isEmailChanged = newEmail.toLowerCase() != originalEmail.toLowerCase();
-    if (isEmailChanged) {
+    final String originalEmail = existing.email.toLowerCase();
+    final String newEmail = updatedTutor.email.trim().toLowerCase();
+    if (originalEmail != newEmail) {
       final bool emailExists = _tutors.any(
-        (Tutor tutor) => tutor.email.toLowerCase() == newEmail.toLowerCase(),
+        (Tutor tutor) =>
+            tutor.id != updatedTutor.id && tutor.email.toLowerCase() == newEmail,
       );
       if (emailExists) {
         return 'อีเมลนี้ถูกใช้แล้ว / Email already registered';
       }
     }
-    _tutors[index] = updatedTutor;
-    bool shouldPersistSession = false;
-    if (_currentTutor != null &&
-        _currentTutor!.email.toLowerCase() == originalEmail.toLowerCase()) {
-      _currentTutor = updatedTutor;
-      shouldPersistSession = true;
+    _setLoading(true);
+    try {
+      final Tutor saved = await _tutorService.updateTutor(
+        updatedTutor,
+        photoBytes: photoBytes,
+        photoBase64: photoBase64,
+      );
+      final int index = _tutors.indexWhere((Tutor tutor) => tutor.id == saved.id);
+      if (index >= 0) {
+        _tutors[index] = saved;
+      } else {
+        _tutors.add(saved);
+      }
+      if (_currentTutor != null && _currentTutor!.id == saved.id) {
+        _currentTutor = saved;
+        await _persistTutorId(saved.id);
+      }
+      return null;
+    } catch (error, stackTrace) {
+      debugPrint('Failed to update tutor: $error');
+      debugPrint('$stackTrace');
+      return 'เกิดข้อผิดพลาด ${error.toString()}';
+    } finally {
+      _setLoading(false);
     }
-    await _saveTutors();
-    if (shouldPersistSession) {
-      await _persistTutorSession(updatedTutor.email);
+  }
+
+  Future<bool> deleteTutor(String tutorId) async {
+    _setLoading(true);
+    try {
+      await _tutorService.deleteTutor(tutorId);
+      final int index = _tutors.indexWhere((Tutor tutor) => tutor.id == tutorId);
+      if (index >= 0) {
+        _tutors.removeAt(index);
+      }
+      if (_currentTutor != null && _currentTutor!.id == tutorId) {
+        _currentTutor = null;
+        await _persistTutorId(null);
+      }
+      return true;
+    } catch (error, stackTrace) {
+      debugPrint('Failed to delete tutor: $error');
+      debugPrint('$stackTrace');
+      return false;
+    } finally {
+      _setLoading(false);
     }
+  }
+
+  void impersonateTutor(Tutor tutor) {
+    _currentTutor = tutor;
     notifyListeners();
+  }
+
+  Future<void> _loadTutorsInternal() async {
+    final List<Tutor> results = await _tutorService.fetchTutors();
+    _tutors
+      ..clear()
+      ..addAll(results);
+  }
+
+  Tutor? _findTutorById(String id) {
+    for (final Tutor tutor in _tutors) {
+      if (tutor.id == id) {
+        return tutor;
+      }
+    }
     return null;
   }
 
-  /// ลบข้อมูลติวเตอร์ออกจากระบบ / Delete tutor from storage
-  Future<bool> deleteTutor(String email) async {
-    final int index = _tutors.indexWhere(
-      (Tutor tutor) => tutor.email.toLowerCase() == email.toLowerCase(),
-    );
-    if (index == -1) {
-      return false;
+  void _setLoading(bool value) {
+    if (_isLoading == value) {
+      return;
     }
-    final bool isCurrentTutor =
-        _currentTutor != null && _currentTutor!.email.toLowerCase() == email.toLowerCase();
-    _tutors.removeAt(index);
-    await _saveTutors();
-    if (isCurrentTutor) {
-      _currentTutor = null;
-      await _persistTutorSession(null);
-    }
+    _isLoading = value;
     notifyListeners();
-    return true;
   }
 
-  /// บันทึกเซสชันติวเตอร์ลงไฟล์ / Persist tutor session email to file
-  Future<void> _persistTutorSession(String? email) async {
-    try {
-      final File sessionFile = await _sessionFile;
-      if (email == null || email.trim().isEmpty) {
-        if (await sessionFile.exists()) {
-          await sessionFile.delete();
-        }
-        return;
-      }
-      await sessionFile.create(recursive: true);
-      await sessionFile.writeAsString(email.trim());
-    } catch (e) {
-      debugPrint('Failed to persist tutor session: $e');
+  Future<void> _persistTutorId(String? tutorId) async {
+    final SharedPreferences? prefs = _prefs;
+    if (prefs == null) {
+      return;
+    }
+    if (tutorId == null || tutorId.isEmpty) {
+      await prefs.remove(_sessionKey);
+    } else {
+      await prefs.setString(_sessionKey, tutorId);
     }
   }
 }

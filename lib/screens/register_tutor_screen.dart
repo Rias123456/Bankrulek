@@ -5,7 +5,9 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
+import '../models/tutor.dart';
 import '../providers/auth_provider.dart';
+import '../services/tutor_service.dart';
 import '../widgets/primary_button.dart';
 
 /// หน้าสำหรับสมัครติวเตอร์ใหม่
@@ -19,6 +21,7 @@ class RegisterTutorScreen extends StatefulWidget {
 class _RegisterTutorScreenState extends State<RegisterTutorScreen> {
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
 
+  final TextEditingController _fullNameController = TextEditingController();
   final TextEditingController _nicknameController = TextEditingController();
   final TextEditingController _phoneController = TextEditingController();
   final TextEditingController _lineIdController = TextEditingController();
@@ -31,6 +34,7 @@ class _RegisterTutorScreenState extends State<RegisterTutorScreen> {
 
   @override
   void dispose() {
+    _fullNameController.dispose();
     _nicknameController.dispose();
     _phoneController.dispose();
     _lineIdController.dispose();
@@ -71,15 +75,37 @@ class _RegisterTutorScreenState extends State<RegisterTutorScreen> {
     }
 
     setState(() => _isSubmitting = true);
+    final TutorService tutorService = context.read<TutorService>();
     final AuthProvider authProvider = context.read<AuthProvider>();
-    final String? error = await authProvider.registerTutor(
-      nickname: _nicknameController.text.trim(),
-      phoneNumber: _phoneController.text.trim(),
-      lineId: _lineIdController.text.trim(),
-      email: _emailController.text.trim(),
-      password: _passwordController.text.trim(),
-      profileImageBase64: _profileImageBase64,
-    );
+    String? error;
+    try {
+      final String email = _emailController.text.trim();
+      final String normalizedEmail = email.toLowerCase();
+      final bool emailExists = authProvider.tutors.any(
+        (Tutor tutor) => tutor.email.toLowerCase() == normalizedEmail,
+      );
+      if (emailExists) {
+        error = 'อีเมลนี้ถูกใช้แล้ว / Email already registered';
+      } else {
+        await tutorService.addTutor(
+          fullName: _fullNameController.text.trim(),
+          nickname: _nicknameController.text.trim(),
+          phoneNumber: _phoneController.text.trim(),
+          lineId: _lineIdController.text.trim(),
+          email: email,
+          password: _passwordController.text.trim(),
+          status: Tutor.defaultStatus,
+          travelTime: Tutor.defaultTravelDuration,
+          subjects: const <String>[],
+          schedule: const <TutorScheduleEntry>[],
+          photoBytes: _profileImageBytes,
+          photoBase64: _profileImageBase64,
+        );
+        await authProvider.refreshTutors();
+      }
+    } catch (e) {
+      error = 'เกิดข้อผิดพลาด ไม่สามารถสมัครสมาชิกได้';
+    }
     setState(() => _isSubmitting = false);
 
     if (!mounted) return;
@@ -139,6 +165,15 @@ class _RegisterTutorScreenState extends State<RegisterTutorScreen> {
               const SizedBox(height: 24),
 
               // ฟอร์มกรอกข้อมูล
+              _buildTextField(
+                controller: _fullNameController,
+                label: 'ชื่อ-นามสกุล',
+                icon: Icons.badge_outlined,
+                validator: (value) =>
+                    value == null || value.isEmpty ? 'กรุณากรอกชื่อ-นามสกุล' : null,
+              ),
+              const SizedBox(height: 16),
+
               _buildTextField(
                 controller: _nicknameController,
                 label: 'ชื่อเล่น',
