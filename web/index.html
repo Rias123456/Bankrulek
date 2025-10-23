@@ -34,5 +34,23 @@
 </head>
 <body>
   <script src="flutter_bootstrap.js" async></script>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-app.js";
+    import { getAnalytics } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-analytics.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyCbEIQF1xmD2K9VUqF-QFZjYTMH8x5VF2Y",
+      authDomain: "bankrulek-95bb5.firebaseapp.com",
+      projectId: "bankrulek-95bb5",
+      storageBucket: "bankrulek-95bb5.firebasestorage.app",
+      messagingSenderId: "406579098743",
+      appId: "1:406579098743:web:3df334acf3466f5e8562",
+      measurementId: "G-XN8YHOLCDN6"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    getAnalytics(app);
+  </script>
 </body>
 </html>
