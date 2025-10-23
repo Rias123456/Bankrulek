@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
 
 import '../providers/auth_provider.dart';
@@ -21,12 +19,8 @@ class AdminTutorProfileScreen extends StatelessWidget {
     final String travelDuration = tutor.travelDuration.isNotEmpty ? tutor.travelDuration : 'ยังไม่ได้ระบุ';
 
     ImageProvider<Object>? avatarImage;
-    if (tutor.profileImageBase64 != null && tutor.profileImageBase64!.isNotEmpty) {
-      try {
-        avatarImage = MemoryImage(base64Decode(tutor.profileImageBase64!));
-      } catch (_) {
-        avatarImage = null;
-      }
+    if (tutor.profileImageUrl != null && tutor.profileImageUrl!.isNotEmpty) {
+      avatarImage = NetworkImage(tutor.profileImageUrl!);
     }
 
     return Scaffold(

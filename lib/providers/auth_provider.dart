@@ -1,13 +1,18 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
 /// คลาสข้อมูลสำหรับเก็บรายละเอียดของติวเตอร์ / Data model for tutors
 class Tutor {
+  /// ไอดีเอกสารใน Firestore / Firestore document identifier
+  final String id;
+
   /// ชื่อจริง / First name
   final String firstName;
 
@@ -38,8 +43,11 @@ class Tutor {
   /// ระยะเวลาในการเดินทางไปสอน / Travel duration to tutoring location
   final String travelDuration;
 
-  /// ข้อมูลรูปโปรไฟล์แบบ Base64 / Base64-encoded profile image data
-  final String? profileImageBase64;
+  /// ลิงก์รูปโปรไฟล์ / Download URL for the profile image
+  final String? profileImageUrl;
+
+  /// พาธไฟล์รูปโปรไฟล์ใน Firebase Storage / Storage path for the profile image
+  final String? profileImageStoragePath;
 
   /// วิชาที่สามารถสอนได้ พร้อมระดับชั้น / Subjects with the supported grade levels
   final List<String> subjects;
@@ -60,6 +68,7 @@ class Tutor {
   static const String defaultTravelDuration = '';
 
   const Tutor({
+    required this.id,
     this.firstName = '',
     this.lastName = '',
     this.currentActivity = '',
@@ -70,122 +79,75 @@ class Tutor {
     required this.password,
     required this.status,
     required this.travelDuration,
-    this.profileImageBase64,
+    this.profileImageUrl,
+    this.profileImageStoragePath,
     this.subjects = const <String>[],
     this.teachingSchedule,
   });
 
-  /// แปลงเป็นข้อความบันทึก / Convert data into a readable storage line
-  String toStorageLine() {
-    String sanitize(String value) => value.replaceAll('\n', ' ').replaceAll('|', '/');
-    final String firstNameSnippet = firstName.isNotEmpty ? sanitize(firstName) : '';
-    final String lastNameSnippet = lastName.isNotEmpty ? sanitize(lastName) : '';
-    final String imageSnippet =
-        profileImageBase64 != null && profileImageBase64!.isNotEmpty ? sanitize(profileImageBase64!) : '';
-    final String subjectsSnippet = subjects.isNotEmpty
-        ? sanitize(subjects.join(', '))
-        : '';
-    final String scheduleSnippet =
-        teachingSchedule != null && teachingSchedule!.isNotEmpty ? sanitize(teachingSchedule!) : '';
-    final String statusSnippet = sanitize(status.isNotEmpty ? status : defaultStatus);
-    final String travelSnippet = travelDuration.isNotEmpty ? sanitize(travelDuration) : '';
-    final String currentActivitySnippet =
-        currentActivity.isNotEmpty ? sanitize(currentActivity) : '';
-    return 'ชื่อจริง: $firstNameSnippet | นามสกุล: $lastNameSnippet | ชื่อเล่น: ${sanitize(nickname)} | '
-        'ไอดีไลน์: ${sanitize(lineId)} | เบอร์โทร: ${sanitize(phoneNumber)} | อีเมล: ${sanitize(email)} | '
-        'รหัสผ่าน: ${sanitize(password)} | สิ่งที่กำลังทำในปัจจุบัน: $currentActivitySnippet | '
-        'สถานะ: $statusSnippet | ระยะเวลาเดินทาง: $travelSnippet | รูปโปรไฟล์: $imageSnippet | วิชาที่สอน: $subjectsSnippet | '
-        'ตารางสอน: $scheduleSnippet';
-  }
-
-  /// สร้าง Tutor จากบรรทัดข้อความ / Create a Tutor from a storage line
-  static Tutor? fromStorageLine(String line) {
-    final String trimmed = line.trim();
-    if (trimmed.isEmpty) {
-      return null;
-    }
-    final List<String> parts =
-        trimmed.split('|').map((String part) => part.trim()).where((String part) => part.isNotEmpty).toList();
-    if (parts.length < 6) {
-      return null;
+  /// สร้างอ็อบเจ็กต์จากเอกสารใน Firestore
+  factory Tutor.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
+    final Map<String, dynamic>? data = doc.data();
+    if (data == null) {
+      throw StateError('Tutor document ${doc.id} is missing data');
     }
 
-    String? findValue(String label) {
-      try {
-        final String match =
-            parts.firstWhere((String part) => part.startsWith('$label:'), orElse: () => '');
-        if (match.isEmpty) {
-          return null;
-        }
-        final int colonIndex = match.indexOf(':');
-        if (colonIndex == -1) {
-          return null;
-        }
-        return match.substring(colonIndex + 1).trim();
-      } catch (_) {
-        return null;
+    String _readString(String key, {String defaultValue = ''}) {
+      final Object? raw = data[key];
+      if (raw is String) {
+        return raw.trim();
       }
+      return defaultValue;
     }
 
-    final String? firstName = findValue('ชื่อจริง');
-    final String? lastName = findValue('นามสกุล');
-    final String? nickname = findValue('ชื่อเล่น');
-    final String? phoneNumber = findValue('เบอร์โทร') ?? findValue('เบอร์โทรศัพท์');
-    final String? lineId = findValue('ไอดีไลน์');
-    final String? email = findValue('อีเมล');
-    final String? password = findValue('รหัสผ่าน');
-    final String? currentActivity = findValue('สิ่งที่กำลังทำในปัจจุบัน');
-    final String? rawStatus = findValue('สถานะ');
-    final String? rawTravel = findValue('ระยะเวลาเดินทาง');
-    String statusValue = rawStatus == null || rawStatus.trim().isEmpty
+    String? _readNullableString(String key) {
+      final Object? raw = data[key];
+      if (raw is String) {
+        final String trimmed = raw.trim();
+        return trimmed.isEmpty ? null : trimmed;
+      }
+      return null;
+    }
+
+    List<String> _readStringList(String key) {
+      final Object? raw = data[key];
+      if (raw is List) {
+        return raw
+            .whereType<Object>()
+            .map((Object value) => value.toString().trim())
+            .where((String value) => value.isNotEmpty)
+            .toList(growable: false);
+      }
+      return const <String>[];
+    }
+
+    final String resolvedStatus = _readString('status').isEmpty
         ? defaultStatus
-        : rawStatus.trim();
-    String travelDurationValue = defaultTravelDuration;
-    if (rawTravel != null && rawTravel.trim().isNotEmpty) {
-      final String trimmedTravel = rawTravel.trim();
-      if (statuses.contains(trimmedTravel) || trimmedTravel == defaultStatus) {
-        statusValue = statusValue.isEmpty || statusValue == defaultStatus
-            ? trimmedTravel
-            : statusValue;
-      } else {
-        travelDurationValue = trimmedTravel;
-      }
-    }
-    final String? profileImageBase64 = findValue('รูปโปรไฟล์');
-    final String? subjectsValue = findValue('วิชาที่สอน');
-    final List<String> subjects = subjectsValue == null || subjectsValue.trim().isEmpty
-        ? <String>[]
-        : subjectsValue
-            .split(',')
-            .map((String subject) => subject.trim())
-            .where((String subject) => subject.isNotEmpty)
-            .toList();
-    final String? teachingScheduleValue = findValue('ตารางสอน');
-    final String? teachingSchedule =
-        teachingScheduleValue == null || teachingScheduleValue.trim().isEmpty ? null : teachingScheduleValue;
+        : _readString('status');
+    final String resolvedTravelDuration = _readString('travelDuration', defaultValue: defaultTravelDuration);
 
-    if (nickname == null || lineId == null || email == null || password == null) {
-      return null;
-    }
     return Tutor(
-      firstName: firstName ?? '',
-      lastName: lastName ?? '',
-      nickname: nickname,
-      phoneNumber: phoneNumber ?? '',
-      lineId: lineId,
-      email: email,
-      password: password,
-      currentActivity: currentActivity ?? '',
-      status: statusValue,
-      travelDuration: travelDurationValue,
-      profileImageBase64: profileImageBase64,
-      subjects: subjects,
-      teachingSchedule: teachingSchedule,
+      id: doc.id,
+      firstName: _readString('firstName'),
+      lastName: _readString('lastName'),
+      currentActivity: _readString('currentActivity'),
+      nickname: _readString('nickname'),
+      phoneNumber: _readString('phoneNumber'),
+      lineId: _readString('lineId'),
+      email: _readString('email'),
+      password: _readString('password'),
+      status: resolvedStatus.isEmpty ? defaultStatus : resolvedStatus,
+      travelDuration: resolvedTravelDuration,
+      profileImageUrl: _readNullableString('profileImageUrl'),
+      profileImageStoragePath: _readNullableString('profileImageStoragePath'),
+      subjects: _readStringList('subjects'),
+      teachingSchedule: _readNullableString('teachingSchedule'),
     );
   }
 
   /// สร้างอ็อบเจ็กต์ใหม่โดยคงค่าเดิม / Copy with new field values
   Tutor copyWith({
+    String? id,
     String? firstName,
     String? lastName,
     String? currentActivity,
@@ -196,12 +158,14 @@ class Tutor {
     String? password,
     String? status,
     String? travelDuration,
-    String? profileImageBase64,
+    String? profileImageUrl,
+    String? profileImageStoragePath,
     List<String>? subjects,
     String? teachingSchedule,
     bool overrideTeachingSchedule = false,
   }) {
     return Tutor(
+      id: id ?? this.id,
       firstName: firstName ?? this.firstName,
       lastName: lastName ?? this.lastName,
       currentActivity: currentActivity ?? this.currentActivity,
@@ -212,7 +176,8 @@ class Tutor {
       password: password ?? this.password,
       status: status ?? this.status,
       travelDuration: travelDuration ?? this.travelDuration,
-      profileImageBase64: profileImageBase64 ?? this.profileImageBase64,
+      profileImageUrl: profileImageUrl ?? this.profileImageUrl,
+      profileImageStoragePath: profileImageStoragePath ?? this.profileImageStoragePath,
       subjects: subjects ?? this.subjects,
       teachingSchedule:
           overrideTeachingSchedule ? teachingSchedule : teachingSchedule ?? this.teachingSchedule,
@@ -222,6 +187,14 @@ class Tutor {
 
 /// ตัวจัดการสถานะการยืนยันตัวตน / Authentication state manager
 class AuthProvider extends ChangeNotifier {
+  static const String _tutorsCollection = 'tutors';
+
+  /// อินสแตนซ์ Firestore ที่ใช้ในการบันทึกข้อมูล
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+
+  /// อินสแตนซ์ Firebase Storage สำหรับเก็บไฟล์รูปภาพ
+  final FirebaseStorage _storage = FirebaseStorage.instance;
+
   /// รายชื่อผู้สอนทั้งหมด / List of registered tutors
   final List<Tutor> _tutors = [];
 
@@ -231,8 +204,14 @@ class AuthProvider extends ChangeNotifier {
   /// สถานะว่าแอดมินล็อกอินแล้วหรือไม่ / Flag for admin login state
   bool _isAdminLoggedIn = false;
 
-  /// สถานะการโหลดข้อมูลไฟล์ / Loading flag for IO operations
+  /// สถานะการโหลดข้อมูล / Loading flag for IO operations
   bool _isLoading = true;
+
+  /// subscription สำหรับฟังการเปลี่ยนแปลงของข้อมูลติวเตอร์
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _tutorSubscription;
+
+  /// อีเมลที่ต้องการกู้คืนเซสชันหลังโหลดข้อมูลเสร็จ
+  String? _pendingSessionEmail;
 
   /// ข้อมูล credential ของแอดมินตัวอย่าง / Sample admin credential
   static const String _adminPassword = '******';
@@ -260,30 +239,69 @@ class AuthProvider extends ChangeNotifier {
   /// ตรวจสอบว่าแอดมินล็อกอินหรือยัง / Whether admin is logged in
   bool get isAdminLoggedIn => _isAdminLoggedIn;
 
-  /// ฟังก์ชันเริ่มต้นโหลดข้อมูล / Kick-start file loading
+  /// ฟังก์ชันเริ่มต้นโหลดข้อมูล / Kick-start Firestore listeners
   void _initialize() {
     Future.microtask(() async {
-      await _loadTutors();
       await _restoreTutorSession();
+      _listenToTutorChanges();
     });
   }
 
-  /// ตำแหน่งไฟล์ data.txt ในอุปกรณ์ / Resolve data.txt path inside device storage
-  Future<File> get _dataFile async {
-    final Directory dir = await getApplicationDocumentsDirectory();
-    final File file = File('${dir.path}/data.txt');
-    if (!await file.exists()) {
-      await file.create(recursive: true);
-      final List<String>? templateLines = await _loadInitialTemplateLines();
-      await file.writeAsString(
-        _generateFileContent(
-          _tutors,
-          file.path,
-          initialLines: templateLines,
-        ),
+  void _listenToTutorChanges() {
+    _tutorSubscription?.cancel();
+    _isLoading = true;
+    notifyListeners();
+    _tutorSubscription = _firestore
+        .collection(_tutorsCollection)
+        .snapshots()
+        .listen((QuerySnapshot<Map<String, dynamic>> snapshot) {
+      _tutors
+        ..clear()
+        ..addAll(
+          snapshot.docs
+              .map((QueryDocumentSnapshot<Map<String, dynamic>> doc) => Tutor.fromFirestore(doc)),
+        );
+      _isLoading = false;
+      _syncCurrentTutorWithCache();
+      _tryRestorePendingSession();
+      notifyListeners();
+    }, onError: (Object error) {
+      debugPrint('Failed to listen tutors: $error');
+      _isLoading = false;
+      notifyListeners();
+    });
+  }
+
+  Tutor? _findTutorByEmail(String email) {
+    try {
+      return _tutors.firstWhere(
+        (Tutor tutor) => tutor.email.toLowerCase() == email.toLowerCase(),
       );
+    } catch (_) {
+      return null;
     }
-    return file;
+  }
+
+  void _syncCurrentTutorWithCache() {
+    if (_currentTutor == null) {
+      return;
+    }
+    final Tutor? match = _findTutorByEmail(_currentTutor!.email);
+    if (match != null) {
+      _currentTutor = match;
+    }
+  }
+
+  void _tryRestorePendingSession() {
+    if (_pendingSessionEmail == null) {
+      return;
+    }
+    final Tutor? match = _findTutorByEmail(_pendingSessionEmail!);
+    if (match != null) {
+      _currentTutor = match;
+      _isAdminLoggedIn = false;
+      _pendingSessionEmail = null;
+    }
   }
 
   /// ตำแหน่งไฟล์บันทึกเซสชัน / Resolve persistent session file location
@@ -292,108 +310,22 @@ class AuthProvider extends ChangeNotifier {
     return File('${dir.path}/$_tutorSessionFileName');
   }
 
-  Future<List<String>?> _loadInitialTemplateLines() async {
-    try {
-      final String raw = await rootBundle.loadString('assets/data/initial_tutors.txt');
-      final List<String> lines = const LineSplitter()
-          .convert(raw)
-          .map((String line) => line.trimRight())
-          .toList();
-      return lines.where((String element) => element.trim().isNotEmpty).isEmpty ? null : lines;
-    } catch (_) {
-      return null;
-    }
-  }
-
-  /// โหลดรายชื่อติวเตอร์จากไฟล์ / Load tutors from text file
-  Future<void> _loadTutors() async {
-    _isLoading = true;
-    notifyListeners();
-    try {
-      final File file = await _dataFile;
-      final List<String> lines = await file.readAsLines();
-      _tutors
-        ..clear()
-        ..addAll(
-          lines
-              .map((String line) => line.trim())
-              .where((String line) => line.isNotEmpty && !line.startsWith('#'))
-              .map<Tutor?>((String line) => Tutor.fromStorageLine(line))
-              .whereType<Tutor>(),
-        );
-    } catch (e) {
-      debugPrint('Failed to load tutors: $e');
-    } finally {
-      _isLoading = false;
-      notifyListeners();
-    }
-  }
-
-  /// คืนค่าติวเตอร์ที่บันทึกไว้หากมี / Restore persisted tutor session if available
   Future<void> _restoreTutorSession() async {
     try {
       final File sessionFile = await _sessionFile;
       if (!await sessionFile.exists()) {
+        _pendingSessionEmail = null;
         return;
       }
       final String savedEmail = (await sessionFile.readAsString()).trim();
       if (savedEmail.isEmpty) {
+        _pendingSessionEmail = null;
         return;
       }
-      Tutor? match;
-      try {
-        match = _tutors.firstWhere(
-          (Tutor tutor) => tutor.email.toLowerCase() == savedEmail.toLowerCase(),
-        );
-      } on StateError {
-        match = null;
-      }
-      if (match != null) {
-        _currentTutor = match;
-        _isAdminLoggedIn = false;
-        notifyListeners();
-      }
+      _pendingSessionEmail = savedEmail;
     } catch (e) {
       debugPrint('Failed to restore tutor session: $e');
     }
-  }
-
-  /// บันทึกรายชื่อติวเตอร์ลงไฟล์ / Persist tutors into text file
-  Future<void> _saveTutors() async {
-    try {
-      final File file = await _dataFile;
-      final String content = _generateFileContent(_tutors, file.path);
-      await file.writeAsString(content);
-    } catch (e) {
-      debugPrint('Failed to save tutors: $e');
-    }
-  }
-
-  /// สร้างข้อความสำหรับบันทึกไฟล์ / Build file content with header instructions
-  String _generateFileContent(
-    List<Tutor> tutors,
-    String filePath, {
-    List<String>? initialLines,
-  }) {
-    final String normalizedPath = filePath.replaceAll('\\', '/');
-    final StringBuffer buffer = StringBuffer()
-      ..writeln('# วิธีดูข้อมูลที่จัดเก็บไว้: เปิดไฟล์นี้ด้วยแอปจัดการไฟล์หรือเทอร์มินัล')
-      ..writeln('# ที่อยู่ไฟล์: $normalizedPath')
-      ..writeln('# ตัวอย่างคำสั่ง: cat "$normalizedPath"')
-      ..writeln('# ฟอร์แมตข้อมูล: ชื่อจริง | นามสกุล | ชื่อเล่น | ไอดีไลน์ | เบอร์โทร | อีเมล | รหัสผ่าน | สิ่งที่กำลังทำในปัจจุบัน | สถานะ | ระยะเวลาเดินทาง | รูปโปรไฟล์ (Base64) | วิชาที่สอน | ตารางสอน')
-      ..writeln();
-    if (initialLines != null && initialLines.isNotEmpty) {
-      for (final String line in initialLines) {
-        buffer.writeln(line);
-      }
-      if (!buffer.toString().endsWith('\n\n')) {
-        buffer.writeln();
-      }
-    }
-    for (final Tutor tutor in tutors) {
-      buffer.writeln(tutor.toStorageLine());
-    }
-    return buffer.toString();
   }
 
   /// สมัครสมาชิกติวเตอร์ / Register new tutor
@@ -405,27 +337,59 @@ class AuthProvider extends ChangeNotifier {
     required String password,
     String? profileImageBase64,
   }) async {
-    final bool alreadyExists =
-        _tutors.any((Tutor tutor) => tutor.email.toLowerCase() == email.toLowerCase());
-    if (alreadyExists) {
-      return 'อีเมลนี้ถูกใช้แล้ว / Email already registered';
+    final String trimmedEmail = email.trim();
+    final String normalizedEmail = trimmedEmail.toLowerCase();
+    try {
+      final QuerySnapshot<Map<String, dynamic>> snapshot = await _firestore
+          .collection(_tutorsCollection)
+          .where('emailLowercase', isEqualTo: normalizedEmail)
+          .limit(1)
+          .get();
+      if (snapshot.docs.isNotEmpty) {
+        return 'อีเมลนี้ถูกใช้แล้ว / Email already registered';
+      }
+
+      String? imageUrl;
+      String? storagePath;
+      if (profileImageBase64 != null && profileImageBase64.isNotEmpty) {
+        try {
+          final _UploadedImage uploaded =
+              await _uploadProfileImage(profileImageBase64, referenceEmail: trimmedEmail);
+          imageUrl = uploaded.downloadUrl;
+          storagePath = uploaded.storagePath;
+        } on FormatException {
+          return 'รูปโปรไฟล์ไม่ถูกต้อง / Invalid profile image data';
+        } on FirebaseException catch (error) {
+          return 'อัปโหลดรูปไม่สำเร็จ: ${error.message ?? error.code}';
+        }
+      }
+
+      final DocumentReference<Map<String, dynamic>> docRef =
+          _firestore.collection(_tutorsCollection).doc();
+      await docRef.set(<String, dynamic>{
+        'firstName': '',
+        'lastName': '',
+        'currentActivity': '',
+        'nickname': nickname.trim(),
+        'phoneNumber': phoneNumber.trim(),
+        'lineId': lineId.trim(),
+        'email': trimmedEmail,
+        'emailLowercase': normalizedEmail,
+        'password': password,
+        'status': Tutor.defaultStatus,
+        'travelDuration': Tutor.defaultTravelDuration,
+        'profileImageUrl': imageUrl,
+        'profileImageStoragePath': storagePath,
+        'subjects': <String>[],
+        'teachingSchedule': null,
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      return null;
+    } catch (e) {
+      debugPrint('Failed to register tutor: $e');
+      return 'เกิดข้อผิดพลาด ${e.toString()} / Unexpected error';
     }
-    final Tutor tutor = Tutor(
-      nickname: nickname,
-      phoneNumber: phoneNumber,
-      lineId: lineId,
-      email: email,
-      password: password,
-      status: Tutor.defaultStatus,
-      travelDuration: Tutor.defaultTravelDuration,
-      profileImageBase64: profileImageBase64,
-      subjects: const <String>[],
-      teachingSchedule: null,
-    );
-    _tutors.add(tutor);
-    await _saveTutors();
-    notifyListeners();
-    return null;
   }
 
   /// ล็อกอินสำหรับติวเตอร์ / Tutor login method
@@ -434,27 +398,31 @@ class AuthProvider extends ChangeNotifier {
     required String password,
   }) async {
     try {
-      if (_isLoading) {
-        await _loadTutors();
-      }
-      Tutor? match;
-      try {
-        match = _tutors.firstWhere(
-          (Tutor tutor) =>
-              tutor.email.toLowerCase() == email.toLowerCase() && tutor.password == password,
-        );
-      } on StateError {
-        match = null;
-      }
-      if (match == null) {
+      final String normalizedEmail = email.trim().toLowerCase();
+      final QuerySnapshot<Map<String, dynamic>> snapshot = await _firestore
+          .collection(_tutorsCollection)
+          .where('emailLowercase', isEqualTo: normalizedEmail)
+          .limit(1)
+          .get();
+      if (snapshot.docs.isEmpty) {
         return 'ไม่พบผู้ใช้ / Invalid email or password';
       }
-      _currentTutor = match;
+      final QueryDocumentSnapshot<Map<String, dynamic>> doc = snapshot.docs.first;
+      final Map<String, dynamic>? data = doc.data();
+      final String storedPassword = data?['password'] as String? ?? '';
+      if (storedPassword != password) {
+        return 'ไม่พบผู้ใช้ / Invalid email or password';
+      }
+      final Tutor tutor = Tutor.fromFirestore(doc);
+      _currentTutor = tutor;
       _isAdminLoggedIn = false;
-      await _persistTutorSession(match.email);
+      _pendingSessionEmail = tutor.email;
+      _updateTutorInCache(tutor);
+      await _persistTutorSession(tutor.email);
       notifyListeners();
       return null;
     } catch (e) {
+      debugPrint('Failed to login tutor: $e');
       return 'เกิดข้อผิดพลาด ${e.toString()} / Unexpected error';
     }
   }
@@ -466,6 +434,7 @@ class AuthProvider extends ChangeNotifier {
     if (password == _adminPassword) {
       _isAdminLoggedIn = true;
       _currentTutor = null;
+      _pendingSessionEmail = null;
       await _persistTutorSession(null);
       notifyListeners();
       return null;
@@ -477,6 +446,7 @@ class AuthProvider extends ChangeNotifier {
   Future<void> logout() async {
     _currentTutor = null;
     _isAdminLoggedIn = false;
+    _pendingSessionEmail = null;
     await _persistTutorSession(null);
     notifyListeners();
   }
@@ -491,56 +461,159 @@ class AuthProvider extends ChangeNotifier {
   Future<String?> updateTutor({
     required String originalEmail,
     required Tutor updatedTutor,
+    String? newProfileImageBase64,
+    bool removeProfileImage = false,
   }) async {
-    final int index = _tutors.indexWhere(
-      (Tutor tutor) => tutor.email.toLowerCase() == originalEmail.toLowerCase(),
-    );
-    if (index == -1) {
+    final Tutor? existing = _findTutorByEmail(originalEmail);
+    if (existing == null) {
       return 'ไม่พบผู้ใช้ / Tutor not found';
     }
-    final String newEmail = updatedTutor.email.trim();
-    final bool isEmailChanged = newEmail.toLowerCase() != originalEmail.toLowerCase();
-    if (isEmailChanged) {
-      final bool emailExists = _tutors.any(
-        (Tutor tutor) => tutor.email.toLowerCase() == newEmail.toLowerCase(),
-      );
-      if (emailExists) {
+
+    final DocumentReference<Map<String, dynamic>> docRef =
+        _firestore.collection(_tutorsCollection).doc(existing.id);
+    final String trimmedEmail = updatedTutor.email.trim();
+    final String normalizedEmail = trimmedEmail.toLowerCase();
+
+    if (normalizedEmail != existing.email.toLowerCase()) {
+      final QuerySnapshot<Map<String, dynamic>> snapshot = await _firestore
+          .collection(_tutorsCollection)
+          .where('emailLowercase', isEqualTo: normalizedEmail)
+          .limit(1)
+          .get();
+      if (snapshot.docs.isNotEmpty && snapshot.docs.first.id != existing.id) {
         return 'อีเมลนี้ถูกใช้แล้ว / Email already registered';
       }
     }
-    _tutors[index] = updatedTutor;
+
+    String? imageUrl = existing.profileImageUrl;
+    String? storagePath = existing.profileImageStoragePath;
+
+    if (removeProfileImage) {
+      if (storagePath != null && storagePath.isNotEmpty) {
+        try {
+          await _storage.ref(storagePath).delete();
+        } on FirebaseException catch (error) {
+          debugPrint('Failed to delete profile image: ${error.message ?? error.code}');
+        }
+      }
+      imageUrl = null;
+      storagePath = null;
+    } else if (newProfileImageBase64 != null && newProfileImageBase64.isNotEmpty) {
+      if (storagePath != null && storagePath.isNotEmpty) {
+        try {
+          await _storage.ref(storagePath).delete();
+        } on FirebaseException catch (error) {
+          debugPrint('Failed to delete previous image: ${error.message ?? error.code}');
+        }
+      }
+      try {
+        final _UploadedImage uploaded =
+            await _uploadProfileImage(newProfileImageBase64, referenceEmail: trimmedEmail);
+        imageUrl = uploaded.downloadUrl;
+        storagePath = uploaded.storagePath;
+      } on FormatException {
+        return 'รูปโปรไฟล์ไม่ถูกต้อง / Invalid profile image data';
+      } on FirebaseException catch (error) {
+        return 'อัปโหลดรูปไม่สำเร็จ: ${error.message ?? error.code}';
+      }
+    }
+
+    final String resolvedStatus =
+        updatedTutor.status.isEmpty ? Tutor.defaultStatus : updatedTutor.status;
+
+    try {
+      await docRef.update(<String, dynamic>{
+        'firstName': updatedTutor.firstName.trim(),
+        'lastName': updatedTutor.lastName.trim(),
+        'currentActivity': updatedTutor.currentActivity.trim(),
+        'nickname': updatedTutor.nickname.trim(),
+        'phoneNumber': updatedTutor.phoneNumber.trim(),
+        'lineId': updatedTutor.lineId.trim(),
+        'email': trimmedEmail,
+        'emailLowercase': normalizedEmail,
+        'password': updatedTutor.password,
+        'status': resolvedStatus,
+        'travelDuration': updatedTutor.travelDuration.trim(),
+        'subjects': List<String>.from(updatedTutor.subjects),
+        'teachingSchedule': updatedTutor.teachingSchedule,
+        'profileImageUrl': imageUrl,
+        'profileImageStoragePath': storagePath,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      debugPrint('Failed to update tutor: $e');
+      return 'เกิดข้อผิดพลาด ${e.toString()} / Unexpected error';
+    }
+
+    final Tutor sanitized = existing.copyWith(
+      firstName: updatedTutor.firstName.trim(),
+      lastName: updatedTutor.lastName.trim(),
+      currentActivity: updatedTutor.currentActivity.trim(),
+      nickname: updatedTutor.nickname.trim(),
+      phoneNumber: updatedTutor.phoneNumber.trim(),
+      lineId: updatedTutor.lineId.trim(),
+      email: trimmedEmail,
+      password: updatedTutor.password,
+      status: resolvedStatus,
+      travelDuration: updatedTutor.travelDuration.trim(),
+      subjects: List<String>.from(updatedTutor.subjects),
+      teachingSchedule: updatedTutor.teachingSchedule,
+      overrideTeachingSchedule: true,
+      profileImageUrl: imageUrl,
+      profileImageStoragePath: storagePath,
+    );
+
+    _updateTutorInCache(sanitized);
+
     bool shouldPersistSession = false;
-    if (_currentTutor != null &&
-        _currentTutor!.email.toLowerCase() == originalEmail.toLowerCase()) {
-      _currentTutor = updatedTutor;
+    if (_currentTutor != null && _currentTutor!.id == existing.id) {
+      _currentTutor = sanitized;
       shouldPersistSession = true;
     }
-    await _saveTutors();
+
     if (shouldPersistSession) {
-      await _persistTutorSession(updatedTutor.email);
+      await _persistTutorSession(sanitized.email);
     }
+
     notifyListeners();
     return null;
   }
 
   /// ลบข้อมูลติวเตอร์ออกจากระบบ / Delete tutor from storage
   Future<bool> deleteTutor(String email) async {
-    final int index = _tutors.indexWhere(
-      (Tutor tutor) => tutor.email.toLowerCase() == email.toLowerCase(),
-    );
-    if (index == -1) {
+    final Tutor? target = _findTutorByEmail(email);
+    if (target == null) {
       return false;
     }
-    final bool isCurrentTutor =
-        _currentTutor != null && _currentTutor!.email.toLowerCase() == email.toLowerCase();
-    _tutors.removeAt(index);
-    await _saveTutors();
-    if (isCurrentTutor) {
-      _currentTutor = null;
-      await _persistTutorSession(null);
+    try {
+      await _firestore.collection(_tutorsCollection).doc(target.id).delete();
+      if (target.profileImageStoragePath != null && target.profileImageStoragePath!.isNotEmpty) {
+        try {
+          await _storage.ref(target.profileImageStoragePath!).delete();
+        } on FirebaseException catch (error) {
+          debugPrint('Failed to delete profile image: ${error.message ?? error.code}');
+        }
+      }
+      _tutors.removeWhere((Tutor tutor) => tutor.id == target.id);
+      if (_currentTutor != null && _currentTutor!.id == target.id) {
+        _currentTutor = null;
+        await _persistTutorSession(null);
+      }
+      notifyListeners();
+      return true;
+    } catch (e) {
+      debugPrint('Failed to delete tutor: $e');
+      return false;
     }
-    notifyListeners();
-    return true;
+  }
+
+  void _updateTutorInCache(Tutor tutor) {
+    final int index = _tutors.indexWhere((Tutor element) => element.id == tutor.id);
+    if (index == -1) {
+      _tutors.add(tutor);
+    } else {
+      _tutors[index] = tutor;
+    }
   }
 
   /// บันทึกเซสชันติวเตอร์ลงไฟล์ / Persist tutor session email to file
@@ -559,4 +632,39 @@ class AuthProvider extends ChangeNotifier {
       debugPrint('Failed to persist tutor session: $e');
     }
   }
+
+  String _generateStorageFileName(String email) {
+    final String sanitized = email.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '_');
+    final int timestamp = DateTime.now().millisecondsSinceEpoch;
+    return '${sanitized}_$timestamp.jpg';
+  }
+
+  Future<_UploadedImage> _uploadProfileImage(
+    String base64Data, {
+    required String referenceEmail,
+  }) async {
+    final Uint8List bytes = base64Decode(base64Data);
+    final String fileName = _generateStorageFileName(referenceEmail);
+    final String storagePath = 'tutor_profiles/$fileName';
+    final Reference ref = _storage.ref(storagePath);
+    await ref.putData(
+      bytes,
+      SettableMetadata(contentType: 'image/jpeg'),
+    );
+    final String downloadUrl = await ref.getDownloadURL();
+    return _UploadedImage(downloadUrl: downloadUrl, storagePath: storagePath);
+  }
+
+  @override
+  void dispose() {
+    _tutorSubscription?.cancel();
+    super.dispose();
+  }
+}
+
+class _UploadedImage {
+  const _UploadedImage({required this.downloadUrl, required this.storagePath});
+
+  final String downloadUrl;
+  final String storagePath;
 }

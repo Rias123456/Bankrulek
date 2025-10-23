@@ -190,6 +190,7 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
 
   List<String> _selectedSubjects = <String>[];
   String? _profileImageBase64;
+  String? _profileImageUrl;
   final ImagePicker _imagePicker = ImagePicker();
   bool _isSaving = false;
   String? _lastSyncedSignature;
@@ -378,15 +379,16 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
     _travelDurationController.text = tutor.travelDuration;
     _selectedSubjects = List<String>.from(tutor.subjects);
     _loadScheduleFromString(tutor.teachingSchedule);
-    _profileImageBase64 = tutor.profileImageBase64;
+    _profileImageBase64 = null;
+    _profileImageUrl = tutor.profileImageUrl;
     _lastSyncedSignature = signature;
   }
 
   String _buildTutorSignature(Tutor tutor) {
     final String subjectsSignature = tutor.subjects.join(',');
     final String scheduleSignature = tutor.teachingSchedule ?? '';
-    final String imageSignature = tutor.profileImageBase64 ?? '';
-    return '${tutor.email}|${tutor.firstName}|${tutor.lastName}|${tutor.nickname}|${tutor.lineId}|${tutor.phoneNumber}|${tutor.currentActivity}|${tutor.status}|${tutor.travelDuration}|'
+    final String imageSignature = tutor.profileImageUrl ?? '';
+    return '${tutor.id}|${tutor.email}|${tutor.firstName}|${tutor.lastName}|${tutor.nickname}|${tutor.lineId}|${tutor.phoneNumber}|${tutor.currentActivity}|${tutor.status}|${tutor.travelDuration}|'
         '$subjectsSignature|$scheduleSignature|$imageSignature';
   }
 
@@ -1427,15 +1429,21 @@ menuPosition = RelativeRect.fromLTRB(
   }
 
 
-  ImageProvider<Object>? _buildProfileImage(String? base64Data) {
-    if (base64Data == null || base64Data.isEmpty) {
-      return null;
+  ImageProvider<Object>? _buildProfileImage({
+    String? base64Data,
+    String? imageUrl,
+  }) {
+    if (base64Data != null && base64Data.isNotEmpty) {
+      try {
+        return MemoryImage(base64Decode(base64Data));
+      } catch (_) {
+        // หากไม่สามารถถอดรหัสได้ให้ลอง fallback ไปใช้ URL
+      }
     }
-    try {
-      return MemoryImage(base64Decode(base64Data));
-    } catch (_) {
-      return null;
+    if (imageUrl != null && imageUrl.isNotEmpty) {
+      return NetworkImage(imageUrl);
     }
+    return null;
   }
 
   Future<void> _handleSave() async {
@@ -1464,6 +1472,13 @@ menuPosition = RelativeRect.fromLTRB(
     final String parsedLastName =
         nameParts.length > 1 ? nameParts.sublist(1).join(' ') : '';
 
+    final String? uploadImageBase64 =
+        _profileImageBase64 != null && _profileImageBase64!.isNotEmpty
+            ? _profileImageBase64
+            : null;
+    final bool removeProfileImage =
+        _profileImageBase64 != null && _profileImageBase64!.isEmpty && (_profileImageUrl == null);
+
     final Tutor updatedTutor = currentTutor.copyWith(
       firstName: parsedFirstName,
       lastName: parsedLastName,
@@ -1473,8 +1488,6 @@ menuPosition = RelativeRect.fromLTRB(
       lineId: _lineIdController.text.trim(),
       travelDuration: _travelDurationController.text.trim(),
       subjects: List<String>.from(_selectedSubjects),
-      profileImageBase64:
-          _profileImageBase64 == null || _profileImageBase64!.isEmpty ? null : _profileImageBase64,
       teachingSchedule: () {
         final String serializedSchedule = _serializeScheduleBlocks();
         if (serializedSchedule.isNotEmpty) {
@@ -1491,6 +1504,8 @@ menuPosition = RelativeRect.fromLTRB(
     final String? error = await authProvider.updateTutor(
       originalEmail: currentTutor.email,
       updatedTutor: updatedTutor,
+      newProfileImageBase64: uploadImageBase64,
+      removeProfileImage: removeProfileImage,
     );
 
     if (!mounted) {
@@ -1638,6 +1653,7 @@ menuPosition = RelativeRect.fromLTRB(
       }
       setState(() {
         _profileImageBase64 = encoded;
+        _profileImageUrl = null;
       });
     } catch (error) {
       if (!mounted) {
@@ -1652,6 +1668,7 @@ menuPosition = RelativeRect.fromLTRB(
   void _removeProfileImage() {
     setState(() {
       _profileImageBase64 = '';
+      _profileImageUrl = null;
     });
   }
 
@@ -1662,6 +1679,9 @@ menuPosition = RelativeRect.fromLTRB(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (BuildContext context) {
+        final bool hasImageToRemove =
+            (_profileImageBase64 != null && _profileImageBase64!.isNotEmpty) ||
+                (_profileImageBase64 == null && (_profileImageUrl ?? '').isNotEmpty);
         return SafeArea(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -1674,7 +1694,7 @@ menuPosition = RelativeRect.fromLTRB(
                   _pickProfileImage();
                 },
               ),
-              if (_profileImageBase64 != null && _profileImageBase64!.isNotEmpty)
+              if (hasImageToRemove)
                 ListTile(
                   leading: const Icon(Icons.delete_outline),
                   title: const Text('ลบรูปโปรไฟล์'),
@@ -1692,9 +1712,19 @@ menuPosition = RelativeRect.fromLTRB(
   }
 
   Widget _buildHeaderSection(Tutor tutor) {
-    final String? imageData =
-        _profileImageBase64 ?? tutor.profileImageBase64;
-    final ImageProvider<Object>? imageProvider = _buildProfileImage(imageData);
+    final bool isRemovalRequested =
+        _profileImageBase64 != null && _profileImageBase64!.isEmpty;
+    final String? base64Data =
+        (_profileImageBase64 != null && _profileImageBase64!.isNotEmpty)
+            ? _profileImageBase64
+            : null;
+    final String? effectiveUrl = isRemovalRequested
+        ? null
+        : _profileImageUrl ?? tutor.profileImageUrl;
+    final ImageProvider<Object>? imageProvider = _buildProfileImage(
+      base64Data: base64Data,
+      imageUrl: effectiveUrl,
+    );
     final String nicknameDisplay =
         _nicknameController.text.trim().isEmpty ? tutor.nickname : _nicknameController.text.trim();
     return Column(
