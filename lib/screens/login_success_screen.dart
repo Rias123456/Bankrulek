@@ -503,21 +503,6 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
     _legacyScheduleNote = trimmed;
   }
 
-  String _serializeScheduleBlocks() {
-    if (_scheduleBlocks.isEmpty) {
-      return '';
-    }
-    _sortBlocks();
-    final Map<String, dynamic> data = <String, dynamic>{
-      'format': 'grid-v1',
-      'startHour': _scheduleStartHour,
-      'endHour': _scheduleEndHour,
-      'minutesPerSlot': _minutesPerSlot,
-      'blocks': _scheduleBlocks.map((ScheduleBlock block) => block.toJson()).toList(),
-    };
-    return '$_scheduleSerializationPrefix${jsonEncode(data)}';
-  }
-
   void _loadScheduleFromEntries(List<TutorScheduleEntry> entries) {
     _scheduleBlocks = <ScheduleBlock>[];
     _legacyScheduleNote = null;

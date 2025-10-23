@@ -1177,7 +1177,7 @@ Widget _buildSubjectFilterSection() {
   }
 
   Widget _buildTutorTile(Tutor tutor) {
-    MemoryImage? avatarImage;
+    ImageProvider? avatarImage;
     if (tutor.profileImageBase64 != null && tutor.profileImageBase64!.isNotEmpty) {
       try {
         avatarImage = MemoryImage(base64Decode(tutor.profileImageBase64!));

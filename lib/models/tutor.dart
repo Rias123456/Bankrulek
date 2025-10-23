@@ -121,6 +121,10 @@ class Tutor {
 
   static const String defaultStatus = 'เป็นครูอยู่';
   static const String defaultTravelDuration = '';
+  static const List<String> statuses = <String>[
+    defaultStatus,
+    'พักการสอน',
+  ];
 
   final String id;
   final String firstName;
