@@ -6,6 +6,7 @@ import 'screens/admin_dashboard_screen.dart';
 import 'screens/admin_login_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/login_success_screen.dart';
+import 'screens/login_dashboard_screen.dart';
 import 'screens/register_tutor_screen.dart';
 import 'screens/tutor_login_screen.dart';
 
@@ -38,6 +39,7 @@ class BankrulekApp extends StatelessWidget {
           '/admin-login': (BuildContext context) => const AdminLoginScreen(),
           '/admin-dashboard': (BuildContext context) => const AdminDashboardScreen(),
           '/login-success': (BuildContext context) => const LoginSuccessScreen(),
+          '/login-dashboard': (BuildContext context) => const LoginDashboardScreen(),
         },
       ),
     );
