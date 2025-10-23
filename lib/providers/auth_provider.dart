@@ -92,7 +92,7 @@ class Tutor {
       throw StateError('Tutor document ${doc.id} is missing data');
     }
 
-    String _readString(String key, {String defaultValue = ''}) {
+    String readString(String key, {String defaultValue = ''}) {
       final Object? raw = data[key];
       if (raw is String) {
         return raw.trim();
@@ -100,7 +100,7 @@ class Tutor {
       return defaultValue;
     }
 
-    String? _readNullableString(String key) {
+    String? readNullableString(String key) {
       final Object? raw = data[key];
       if (raw is String) {
         final String trimmed = raw.trim();
@@ -109,7 +109,7 @@ class Tutor {
       return null;
     }
 
-    List<String> _readStringList(String key) {
+    List<String> readStringList(String key) {
       final Object? raw = data[key];
       if (raw is List) {
         return raw
@@ -121,27 +121,28 @@ class Tutor {
       return const <String>[];
     }
 
-    final String resolvedStatus = _readString('status').isEmpty
+    final String resolvedStatus = readString('status').isEmpty
         ? defaultStatus
-        : _readString('status');
-    final String resolvedTravelDuration = _readString('travelDuration', defaultValue: defaultTravelDuration);
+        : readString('status');
+    final String resolvedTravelDuration =
+        readString('travelDuration', defaultValue: defaultTravelDuration);
 
     return Tutor(
       id: doc.id,
-      firstName: _readString('firstName'),
-      lastName: _readString('lastName'),
-      currentActivity: _readString('currentActivity'),
-      nickname: _readString('nickname'),
-      phoneNumber: _readString('phoneNumber'),
-      lineId: _readString('lineId'),
-      email: _readString('email'),
-      password: _readString('password'),
+      firstName: readString('firstName'),
+      lastName: readString('lastName'),
+      currentActivity: readString('currentActivity'),
+      nickname: readString('nickname'),
+      phoneNumber: readString('phoneNumber'),
+      lineId: readString('lineId'),
+      email: readString('email'),
+      password: readString('password'),
       status: resolvedStatus.isEmpty ? defaultStatus : resolvedStatus,
       travelDuration: resolvedTravelDuration,
-      profileImageUrl: _readNullableString('profileImageUrl'),
-      profileImageStoragePath: _readNullableString('profileImageStoragePath'),
-      subjects: _readStringList('subjects'),
-      teachingSchedule: _readNullableString('teachingSchedule'),
+      profileImageUrl: readNullableString('profileImageUrl'),
+      profileImageStoragePath: readNullableString('profileImageStoragePath'),
+      subjects: readStringList('subjects'),
+      teachingSchedule: readNullableString('teachingSchedule'),
     );
   }
 
