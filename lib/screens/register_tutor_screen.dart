@@ -1,12 +1,13 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:provider/provider.dart';
 
-import '../providers/auth_provider.dart';
+import '../services/tutor_service.dart';
 import '../widgets/primary_button.dart';
+import '../utils/session.dart';
 
 /// หน้าสำหรับสมัครติวเตอร์ใหม่
 class RegisterTutorScreen extends StatefulWidget {
@@ -24,6 +25,8 @@ class _RegisterTutorScreenState extends State<RegisterTutorScreen> {
   final TextEditingController _lineIdController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
+
+  final TutorService _tutorService = TutorService();
 
   Uint8List? _profileImageBytes;
   String? _profileImageBase64;
@@ -62,35 +65,92 @@ class _RegisterTutorScreenState extends State<RegisterTutorScreen> {
   Future<void> _handleRegister() async {
     if (!_formKey.currentState!.validate()) return;
 
-    // ✅ เช็กว่ามีการเลือกรูปหรือไม่
-    if (_profileImageBase64 == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('กรุณาเลือกรูปโปรไฟล์')),
-      );
-      return;
-    }
-
     setState(() => _isSubmitting = true);
-    final AuthProvider authProvider = context.read<AuthProvider>();
-    final String? error = await authProvider.registerTutor(
-      nickname: _nicknameController.text.trim(),
-      phoneNumber: _phoneController.text.trim(),
-      lineId: _lineIdController.text.trim(),
-      email: _emailController.text.trim(),
-      password: _passwordController.text.trim(),
-      profileImageBase64: _profileImageBase64,
-    );
-    setState(() => _isSubmitting = false);
+    UserCredential? credential;
+    try {
+      final String email = _emailController.text.trim();
+      final String password = _passwordController.text.trim();
 
-    if (!mounted) return;
-    if (error != null) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
-      return;
+      credential = await FirebaseAuth.instance.createUserWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+      final User? user = credential.user;
+      if (user == null) {
+        throw FirebaseAuthException(
+          code: 'user-null',
+          message: 'ไม่สามารถสร้างบัญชีได้',
+        );
+      }
+
+      final String tutorId = user.uid;
+
+      await _tutorService.addTutor(
+        tutorId: tutorId,
+        fullName: '',
+        nickname: _nicknameController.text.trim(),
+        phone: _phoneController.text.trim(),
+        lineId: _lineIdController.text.trim(),
+        email: email,
+        password: password,
+        currentStatus: 'เป็นครูอยู่',
+        travelTime: '',
+        subjects: const <String>[],
+        profileImageBytes: _profileImageBytes,
+      );
+
+      await SessionHelper.saveTutorId(tutorId);
+
+      if (!mounted) return;
+      Navigator.pushNamedAndRemoveUntil(
+        context,
+        '/login-success',
+        (Route<dynamic> route) => false,
+      );
+    } on FirebaseAuthException catch (error) {
+      if (!mounted) return;
+      String message;
+      switch (error.code) {
+        case 'email-already-in-use':
+          message = 'อีเมลนี้ถูกใช้แล้ว';
+          break;
+        case 'invalid-email':
+          message = 'รูปแบบอีเมลไม่ถูกต้อง';
+          break;
+        case 'weak-password':
+          message = 'รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร';
+          break;
+        default:
+          message = error.message ?? 'ไม่สามารถสมัครสมาชิกได้';
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
+      );
+    } on FirebaseException catch (error) {
+      if (credential?.user != null) {
+        try {
+          await credential!.user!.delete();
+        } catch (_) {}
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.message ?? 'เกิดข้อผิดพลาด กรุณาลองอีกครั้ง')),
+      );
+    } catch (error) {
+      if (credential?.user != null) {
+        try {
+          await credential!.user!.delete();
+        } catch (_) {}
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('เกิดข้อผิดพลาด: $error')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isSubmitting = false);
+      }
     }
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('สมัครสำเร็จ')),
-    );
-    Navigator.pop(context);
   }
 
   @override

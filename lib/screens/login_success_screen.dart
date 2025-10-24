@@ -1,16 +1,17 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
-import 'dart:async';
+import 'dart:typed_data';
 
-
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:provider/provider.dart';
 
-import '../providers/auth_provider.dart';
+import '../services/tutor_service.dart';
 import '../widgets/primary_button.dart';
+import '../utils/session.dart';
 
 enum ScheduleBlockType { teaching, unavailable }
 
@@ -191,8 +192,16 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
   List<String> _selectedSubjects = <String>[];
   String? _profileImageBase64;
   final ImagePicker _imagePicker = ImagePicker();
+  final TutorService _tutorService = TutorService();
   bool _isSaving = false;
-  String? _lastSyncedSignature;
+  bool _isLoadingProfile = true;
+  String? _tutorId;
+  String? _email;
+  String? _password;
+  String? _photoUrl;
+  Uint8List? _newProfileImageBytes;
+  bool _removeExistingPhoto = false;
+  Map<String, dynamic>? _tutorDocumentData;
   List<ScheduleBlock> _scheduleBlocks = <ScheduleBlock>[];
   int _nextBlockId = 1;
   String? _legacyScheduleNote;
@@ -347,6 +356,7 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
     super.initState();
     _scheduleScrollController.addListener(_handleScheduleScrollChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) => _handleScheduleScrollChanged());
+    _loadTutorProfile();
   }
 
   @override
@@ -363,31 +373,100 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
     super.dispose();
   }
 
-  void _synchronizeControllers(Tutor tutor) {
-    final String signature = _buildTutorSignature(tutor);
-    if (_lastSyncedSignature == signature) {
-      return;
+  Future<void> _loadTutorProfile() async {
+    setState(() => _isLoadingProfile = true);
+    try {
+      String? tutorId = await SessionHelper.getTutorId();
+      Map<String, dynamic>? data;
+
+      if (tutorId == null || tutorId.isEmpty) {
+        final User? user = FirebaseAuth.instance.currentUser;
+        tutorId = user?.uid;
+        if (tutorId != null && tutorId.isNotEmpty) {
+          await SessionHelper.saveTutorId(tutorId);
+        }
+      }
+
+      if (tutorId != null && tutorId.isNotEmpty) {
+        data = await _tutorService.getTutor(tutorId);
+      }
+
+      if (!mounted) {
+        return;
+      }
+
+      if (tutorId == null || tutorId.isEmpty) {
+        setState(() {
+          _tutorId = null;
+          _tutorDocumentData = null;
+          _isLoadingProfile = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('ไม่พบข้อมูลผู้สอน กรุณาเข้าสู่ระบบใหม่')),
+        );
+        return;
+      }
+
+      if (data == null) {
+        setState(() {
+          _tutorId = tutorId;
+          _tutorDocumentData = null;
+          _isLoadingProfile = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('ไม่พบข้อมูลผู้สอนในระบบ')),
+        );
+        return;
+      }
+
+      final List<String> subjects = (data['subjects'] as List<dynamic>? ?? <dynamic>[])
+          .map((dynamic value) => value?.toString())
+          .whereType<String>()
+          .toList();
+
+      setState(() {
+        _tutorId = tutorId;
+        _email = data['email'] as String? ?? '';
+        _password = data['password'] as String? ?? '';
+        _photoUrl = data['photoUrl'] as String?;
+        _profileImageBase64 = null;
+        _newProfileImageBytes = null;
+        _removeExistingPhoto = false;
+        _selectedSubjects = subjects;
+        _scheduleBlocks = <ScheduleBlock>[];
+        _legacyScheduleNote = null;
+        _nextBlockId = 1;
+        final String? scheduleSerialized = data['scheduleSerialized'] as String?;
+        final dynamic scheduleRaw = data['schedule'];
+        if (scheduleSerialized != null && scheduleSerialized.isNotEmpty) {
+          _loadScheduleFromString(scheduleSerialized);
+        } else if (scheduleRaw is String) {
+          _loadScheduleFromString(scheduleRaw);
+        } else if (scheduleRaw is List) {
+          _loadScheduleFromFirestore(scheduleRaw);
+        }
+        _tutorDocumentData = data;
+        _isLoadingProfile = false;
+      });
+
+      _fullNameController.text = data['fullName'] as String? ?? '';
+      _nicknameController.text = data['nickname'] as String? ?? '';
+      _lineIdController.text = data['lineId'] as String? ?? '';
+      _phoneController.text = data['phone'] as String? ?? '';
+      _currentActivityController.text = data['currentStatus'] as String? ?? '';
+      _travelDurationController.text = data['travelTime'] as String? ?? '';
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isLoadingProfile = false;
+        _tutorDocumentData = null;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('ไม่สามารถโหลดข้อมูลผู้สอนได้: $error')),
+      );
     }
-
-    final String combinedName = '${tutor.firstName} ${tutor.lastName}'.trim();
-    _fullNameController.text = combinedName;
-    _nicknameController.text = tutor.nickname;
-    _lineIdController.text = tutor.lineId;
-    _phoneController.text = tutor.phoneNumber;
-    _currentActivityController.text = tutor.currentActivity;
-    _travelDurationController.text = tutor.travelDuration;
-    _selectedSubjects = List<String>.from(tutor.subjects);
-    _loadScheduleFromString(tutor.teachingSchedule);
-    _profileImageBase64 = tutor.profileImageBase64;
-    _lastSyncedSignature = signature;
-  }
-
-  String _buildTutorSignature(Tutor tutor) {
-    final String subjectsSignature = tutor.subjects.join(',');
-    final String scheduleSignature = tutor.teachingSchedule ?? '';
-    final String imageSignature = tutor.profileImageBase64 ?? '';
-    return '${tutor.email}|${tutor.firstName}|${tutor.lastName}|${tutor.nickname}|${tutor.lineId}|${tutor.phoneNumber}|${tutor.currentActivity}|${tutor.status}|${tutor.travelDuration}|'
-        '$subjectsSignature|$scheduleSignature|$imageSignature';
   }
 
   void _loadScheduleFromString(String? raw) {
@@ -487,6 +566,191 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
     _legacyScheduleNote = trimmed;
   }
 
+  void _loadScheduleFromFirestore(List<dynamic> rawList) {
+    final List<ScheduleBlock> parsedBlocks = <ScheduleBlock>[];
+    final Set<int> usedIds = <int>{};
+    int provisionalId = 0;
+
+    for (final dynamic entry in rawList) {
+      Map<String, dynamic>? mapEntry;
+      if (entry is Map<String, dynamic>) {
+        mapEntry = Map<String, dynamic>.from(entry);
+      } else if (entry is Map) {
+        mapEntry = Map<String, dynamic>.from(entry.cast<dynamic, dynamic>());
+      }
+      if (mapEntry == null) {
+        continue;
+      }
+
+      final int? dayValue = mapEntry['day'] is int
+          ? mapEntry['day'] as int
+          : mapEntry['dayIndex'] is int
+              ? mapEntry['dayIndex'] as int
+              : null;
+      int? startSlot = mapEntry['startSlot'] is int ? mapEntry['startSlot'] as int : null;
+      int? durationSlots = mapEntry['durationSlots'] is int
+          ? mapEntry['durationSlots'] as int
+          : mapEntry['duration'] is int
+              ? mapEntry['duration'] as int
+              : null;
+
+      final String? startTime = mapEntry['start'] as String? ?? mapEntry['startTime'] as String?;
+      final String? endTime = mapEntry['end'] as String? ?? mapEntry['endTime'] as String?;
+
+      startSlot ??= _slotFromTimeString(startTime);
+      durationSlots ??= _durationFromTimes(startTime, endTime);
+
+      if (dayValue == null || startSlot == null || durationSlots == null) {
+        continue;
+      }
+
+      final int resolvedDayIndex = _resolveDayIndexFromStored(dayValue);
+      final int safeStart = _clampInt(startSlot, 0, _totalSlots - 1);
+      final int maxDuration = _totalSlots - safeStart;
+      if (maxDuration <= 0) {
+        continue;
+      }
+      final int safeDuration = _clampInt(durationSlots, 1, maxDuration);
+
+      DateTime? blockDate;
+      final dynamic rawDate = mapEntry['date'];
+      if (rawDate is String && rawDate.isNotEmpty) {
+        try {
+          blockDate = DateTime.parse(rawDate);
+        } catch (_) {
+          blockDate = null;
+        }
+      }
+
+      final bool isRecurring = mapEntry['isRecurring'] is bool
+          ? mapEntry['isRecurring'] as bool
+          : blockDate == null;
+
+      final String? studentNameRaw = mapEntry['studentName'] as String?;
+      final String? noteRaw = mapEntry['note'] as String?;
+      final String? resolvedNote = () {
+        if (studentNameRaw != null && studentNameRaw.trim().isNotEmpty) {
+          return studentNameRaw.trim();
+        }
+        if (noteRaw != null && noteRaw.trim().isNotEmpty) {
+          return noteRaw.trim();
+        }
+        return null;
+      }();
+
+      int resolvedId = mapEntry['id'] is int ? mapEntry['id'] as int : -1;
+      if (resolvedId <= 0 || usedIds.contains(resolvedId)) {
+        do {
+          provisionalId++;
+        } while (usedIds.contains(provisionalId));
+        resolvedId = provisionalId;
+      }
+
+      final ScheduleBlock block = ScheduleBlock(
+        id: resolvedId,
+        dayIndex: resolvedDayIndex,
+        startSlot: safeStart,
+        durationSlots: safeDuration,
+        type: ScheduleBlockType.teaching,
+        note: resolvedNote,
+        date: blockDate != null ? _normalizeDate(blockDate) : null,
+        isRecurring: isRecurring,
+      );
+
+      final DateTime placementDay = block.date != null
+          ? _normalizeDate(block.date!)
+          : _pseudoDateForDayIndex(block.dayIndex);
+      if (_canPlaceBlock(placementDay, block.startSlot, block.durationSlots, existing: parsedBlocks)) {
+        parsedBlocks.add(block);
+        usedIds.add(resolvedId);
+      }
+    }
+
+    parsedBlocks.sort((ScheduleBlock a, ScheduleBlock b) {
+      final DateTime anchorA = _sortAnchorForBlock(a);
+      final DateTime anchorB = _sortAnchorForBlock(b);
+      final int compare = anchorA.compareTo(anchorB);
+      if (compare != 0) {
+        return compare;
+      }
+      return a.id.compareTo(b.id);
+    });
+
+    _scheduleBlocks = parsedBlocks;
+    if (_scheduleBlocks.isNotEmpty) {
+      _nextBlockId = _scheduleBlocks.map((ScheduleBlock block) => block.id).reduce(math.max) + 1;
+    } else {
+      _nextBlockId = 1;
+    }
+  }
+
+  int _resolveDayIndexFromStored(int rawValue) {
+    if (rawValue >= 1 && rawValue <= 7) {
+      final int weekday = rawValue == 7 ? DateTime.sunday : rawValue;
+      return _dayIndexForWeekday(weekday);
+    }
+    return _clampInt(rawValue, 0, _dayLabels.length - 1);
+  }
+
+  int _weekdayFromDayIndex(int dayIndex) {
+    const List<int> mapping = <int>[
+      DateTime.saturday,
+      DateTime.sunday,
+      DateTime.monday,
+      DateTime.tuesday,
+      DateTime.wednesday,
+      DateTime.thursday,
+      DateTime.friday,
+    ];
+    final int safeIndex = _clampInt(dayIndex, 0, mapping.length - 1);
+    return mapping[safeIndex];
+  }
+
+  int? _minutesSinceScheduleStart(String? timeValue) {
+    if (timeValue == null) {
+      return null;
+    }
+    final RegExpMatch? match = RegExp(r'^(\d{1,2}):(\d{2})$').firstMatch(timeValue.trim());
+    if (match == null) {
+      return null;
+    }
+    final int? hour = int.tryParse(match.group(1)!);
+    final int? minute = int.tryParse(match.group(2)!);
+    if (hour == null || minute == null) {
+      return null;
+    }
+    return hour * 60 + minute - _scheduleStartHour * 60;
+  }
+
+  int? _slotFromTimeString(String? value) {
+    final int? minutes = _minutesSinceScheduleStart(value);
+    if (minutes == null) {
+      return null;
+    }
+    final double slot = minutes / _minutesPerSlot;
+    if (slot.isNaN) {
+      return null;
+    }
+    if (slot < 0) {
+      return 0;
+    }
+    return slot.floor();
+  }
+
+  int? _durationFromTimes(String? start, String? end) {
+    final int? startMinutes = _minutesSinceScheduleStart(start);
+    final int? endMinutes = _minutesSinceScheduleStart(end);
+    if (startMinutes == null || endMinutes == null) {
+      return null;
+    }
+    final int difference = endMinutes - startMinutes;
+    if (difference <= 0) {
+      return null;
+    }
+    final int durationSlots = (difference / _minutesPerSlot).ceil();
+    return durationSlots > 0 ? durationSlots : null;
+  }
+
   String _serializeScheduleBlocks() {
     if (_scheduleBlocks.isEmpty) {
       return '';
@@ -500,6 +764,30 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
       'blocks': _scheduleBlocks.map((ScheduleBlock block) => block.toJson()).toList(),
     };
     return '$_scheduleSerializationPrefix${jsonEncode(data)}';
+  }
+
+  List<Map<String, dynamic>> _serializeScheduleForFirestore() {
+    if (_scheduleBlocks.isEmpty) {
+      return <Map<String, dynamic>>[];
+    }
+    _sortBlocks();
+    final List<Map<String, dynamic>> result = <Map<String, dynamic>>[];
+    for (final ScheduleBlock block in _scheduleBlocks) {
+      final DateTime baseDay = block.date != null
+          ? _normalizeDate(block.date!)
+          : _pseudoDateForDayIndex(block.dayIndex);
+      final DateTime start = _blockStartDateTime(baseDay, block.startSlot);
+      final DateTime end = _blockEndDateTime(baseDay, block.startSlot, block.durationSlots);
+      result.add(<String, dynamic>{
+        'day': block.date != null ? block.date!.weekday : _weekdayFromDayIndex(block.dayIndex),
+        'start': _formatTime(start),
+        'end': _formatTime(end),
+        if (block.note != null && block.note!.trim().isNotEmpty) 'studentName': block.note,
+        'isRecurring': block.isRecurring,
+        if (block.date != null) 'date': block.date!.toIso8601String(),
+      });
+    }
+    return result;
   }
 
   void _sortBlocks() {
@@ -1427,15 +1715,18 @@ menuPosition = RelativeRect.fromLTRB(
   }
 
 
-  ImageProvider<Object>? _buildProfileImage(String? base64Data) {
-    if (base64Data == null || base64Data.isEmpty) {
-      return null;
+  ImageProvider<Object>? _buildProfileImage(String? base64Data, String? networkUrl) {
+    if (base64Data != null && base64Data.isNotEmpty) {
+      try {
+        return MemoryImage(base64Decode(base64Data));
+      } catch (_) {
+        // Fallback to network image if decoding fails.
+      }
     }
-    try {
-      return MemoryImage(base64Decode(base64Data));
-    } catch (_) {
-      return null;
+    if (networkUrl != null && networkUrl.isNotEmpty) {
+      return NetworkImage(networkUrl);
     }
+    return null;
   }
 
   Future<void> _handleSave() async {
@@ -1443,9 +1734,7 @@ menuPosition = RelativeRect.fromLTRB(
       return;
     }
 
-    final AuthProvider authProvider = context.read<AuthProvider>();
-    final Tutor? currentTutor = authProvider.currentTutor;
-    if (currentTutor == null) {
+    if (_tutorId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('ไม่พบข้อมูลผู้สอนในระบบ')),
       );
@@ -1453,67 +1742,81 @@ menuPosition = RelativeRect.fromLTRB(
     }
 
     setState(() => _isSaving = true);
-    final String trimmedFullName = _fullNameController.text.trim();
-    final List<String> nameParts = trimmedFullName.isEmpty
-        ? <String>[]
-        : trimmedFullName
-            .split(RegExp(r'\s+'))
-            .where((String part) => part.isNotEmpty)
-            .toList();
-    final String parsedFirstName = nameParts.isNotEmpty ? nameParts.first : '';
-    final String parsedLastName =
-        nameParts.length > 1 ? nameParts.sublist(1).join(' ') : '';
 
-    final Tutor updatedTutor = currentTutor.copyWith(
-      firstName: parsedFirstName,
-      lastName: parsedLastName,
-      nickname: _nicknameController.text.trim(),
-      currentActivity: _currentActivityController.text.trim(),
-      phoneNumber: _phoneController.text.trim(),
-      lineId: _lineIdController.text.trim(),
-      travelDuration: _travelDurationController.text.trim(),
-      subjects: List<String>.from(_selectedSubjects),
-      profileImageBase64:
-          _profileImageBase64 == null || _profileImageBase64!.isEmpty ? null : _profileImageBase64,
-      teachingSchedule: () {
-        final String serializedSchedule = _serializeScheduleBlocks();
-        if (serializedSchedule.isNotEmpty) {
-          return serializedSchedule;
-        }
-        if (_legacyScheduleNote != null && _legacyScheduleNote!.trim().isNotEmpty) {
-          return _legacyScheduleNote!.trim();
-        }
-        return null;
-      }(),
-      overrideTeachingSchedule: true,
-    );
+    try {
+      final Map<String, dynamic> updateData = <String, dynamic>{
+        'fullName': _fullNameController.text.trim(),
+        'nickname': _nicknameController.text.trim(),
+        'lineId': _lineIdController.text.trim(),
+        'phone': _phoneController.text.trim(),
+        'currentStatus': _currentActivityController.text.trim(),
+        'travelTime': _travelDurationController.text.trim(),
+        'subjects': List<String>.from(_selectedSubjects),
+        'schedule': _serializeScheduleForFirestore(),
+      };
 
-    final String? error = await authProvider.updateTutor(
-      originalEmail: currentTutor.email,
-      updatedTutor: updatedTutor,
-    );
+      if (_email != null && _email!.isNotEmpty) {
+        updateData['email'] = _email;
+      }
+      if (_password != null && _password!.isNotEmpty) {
+        updateData['password'] = _password;
+      }
 
-    if (!mounted) {
-      return;
-    }
-
-    setState(() => _isSaving = false);
-
-    if (error != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error)),
+      final TutorUpdateResult result = await _tutorService.updateTutor(
+        tutorId: _tutorId!,
+        data: updateData,
+        newProfileImageBytes: _newProfileImageBytes,
+        removePhoto: _removeExistingPhoto,
       );
-      return;
-    }
+      final bool removedPhoto = _removeExistingPhoto;
+      final String? nextPhotoUrl = result.photoUrl ?? (removedPhoto ? null : _photoUrl);
 
-    _lastSyncedSignature = _buildTutorSignature(updatedTutor);
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('บันทึกข้อมูลเรียบร้อยแล้ว')),
-    );
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _isSaving = false;
+        _removeExistingPhoto = false;
+        _photoUrl = nextPhotoUrl;
+        _profileImageBase64 = null;
+        _newProfileImageBytes = null;
+        _tutorDocumentData = <String, dynamic>{
+          ...?_tutorDocumentData,
+          ...updateData,
+          'photoUrl': nextPhotoUrl,
+        };
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('บันทึกข้อมูลเรียบร้อยแล้ว')),
+      );
+    } on FirebaseException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _isSaving = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.message ?? 'ไม่สามารถบันทึกข้อมูลได้')),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _isSaving = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('เกิดข้อผิดพลาด: $error')),
+      );
+    }
   }
 
   Future<void> _handleLogout() async {
-    await context.read<AuthProvider>().logout();
+    try {
+      await _tutorService.logout();
+    } catch (_) {
+      // Ignore sign-out errors and continue clearing the local session.
+    }
+    await SessionHelper.clearTutorId();
     if (!mounted) {
       return;
     }
@@ -1632,12 +1935,16 @@ menuPosition = RelativeRect.fromLTRB(
       if (file == null) {
         return;
       }
-      final String encoded = base64Encode(await file.readAsBytes());
+      final Uint8List bytes = await file.readAsBytes();
+      final String encoded = base64Encode(bytes);
       if (!mounted) {
         return;
       }
       setState(() {
         _profileImageBase64 = encoded;
+        _newProfileImageBytes = bytes;
+        _photoUrl = null;
+        _removeExistingPhoto = false;
       });
     } catch (error) {
       if (!mounted) {
@@ -1652,6 +1959,9 @@ menuPosition = RelativeRect.fromLTRB(
   void _removeProfileImage() {
     setState(() {
       _profileImageBase64 = '';
+      _photoUrl = null;
+      _newProfileImageBytes = null;
+      _removeExistingPhoto = true;
     });
   }
 
@@ -1674,7 +1984,8 @@ menuPosition = RelativeRect.fromLTRB(
                   _pickProfileImage();
                 },
               ),
-              if (_profileImageBase64 != null && _profileImageBase64!.isNotEmpty)
+              if ((_profileImageBase64 != null && _profileImageBase64!.isNotEmpty) ||
+                  (_photoUrl != null && _photoUrl!.isNotEmpty))
                 ListTile(
                   leading: const Icon(Icons.delete_outline),
                   title: const Text('ลบรูปโปรไฟล์'),
@@ -1691,12 +2002,16 @@ menuPosition = RelativeRect.fromLTRB(
     );
   }
 
-  Widget _buildHeaderSection(Tutor tutor) {
-    final String? imageData =
-        _profileImageBase64 ?? tutor.profileImageBase64;
-    final ImageProvider<Object>? imageProvider = _buildProfileImage(imageData);
-    final String nicknameDisplay =
-        _nicknameController.text.trim().isEmpty ? tutor.nickname : _nicknameController.text.trim();
+  Widget _buildHeaderSection() {
+    final ImageProvider<Object>? imageProvider =
+        _buildProfileImage(_profileImageBase64, _photoUrl);
+    String nicknameDisplay = _nicknameController.text.trim();
+    if (nicknameDisplay.isEmpty) {
+      final String? storedNickname = _tutorDocumentData != null
+          ? _tutorDocumentData!['nickname'] as String?
+          : null;
+      nicknameDisplay = storedNickname?.trim() ?? '';
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: <Widget>[
@@ -2514,60 +2829,49 @@ final bool hasLabel = label.isNotEmpty;
     return Scaffold(
       backgroundColor: const Color(0xFFFFE4E1),
       body: SafeArea(
-        child: Consumer<AuthProvider>(
-          builder: (BuildContext context, AuthProvider authProvider, _) {
-            if (authProvider.isLoading) {
-              return const Center(child: CircularProgressIndicator());
-            }
-
-            final Tutor? tutor = authProvider.currentTutor;
-            if (tutor == null) {
-              return _buildEmptyState(context);
-            }
-
-            _synchronizeControllers(tutor);
-
-            return Form(
-              key: _formKey,
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(24, 24, 24, 24),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: <Widget>[
-                    _buildHeaderSection(tutor),
-                    const SizedBox(height: 12),
-                    _buildInformationCard(),
-                    const SizedBox(height: 16),
-                    _buildSubjectCard(),
-                    const SizedBox(height: 16),
-                    _buildScheduleCard(),
-                    const SizedBox(height: 24),
-                    PrimaryButton(
-                      label: _isSaving ? 'กำลังบันทึก...' : 'บันทึก',
-                      onPressed: _isSaving ? null : _handleSave,
-                    ),
-                    const SizedBox(height: 12),
-                    OutlinedButton(
-                      onPressed: _isSaving
-                          ? null
-                          : () async {
-                              await _handleLogout();
-                            },
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        textStyle: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
+        child: _isLoadingProfile
+            ? const Center(child: CircularProgressIndicator())
+            : (_tutorDocumentData == null
+                ? _buildEmptyState(context)
+                : Form(
+                    key: _formKey,
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.fromLTRB(24, 24, 24, 24),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: <Widget>[
+                          _buildHeaderSection(),
+                          const SizedBox(height: 12),
+                          _buildInformationCard(),
+                          const SizedBox(height: 16),
+                          _buildSubjectCard(),
+                          const SizedBox(height: 16),
+                          _buildScheduleCard(),
+                          const SizedBox(height: 24),
+                          PrimaryButton(
+                            label: _isSaving ? 'กำลังบันทึก...' : 'บันทึก',
+                            onPressed: _isSaving ? null : _handleSave,
+                          ),
+                          const SizedBox(height: 12),
+                          OutlinedButton(
+                            onPressed: _isSaving
+                                ? null
+                                : () async {
+                                    await _handleLogout();
+                                  },
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              textStyle: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            child: const Text('ออกจากระบบ'),
+                          ),
+                        ],
                       ),
-                      child: const Text('ออกจากระบบ'),
                     ),
-                  ],
-                ),
-              ),
-            );
-          },
-        ),
+                  )),
       ),
     );
   }
