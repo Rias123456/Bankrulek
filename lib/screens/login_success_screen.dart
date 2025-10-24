@@ -1753,7 +1753,6 @@ menuPosition = RelativeRect.fromLTRB(
         'travelTime': _travelDurationController.text.trim(),
         'subjects': List<String>.from(_selectedSubjects),
         'schedule': _serializeScheduleForFirestore(),
-        'scheduleSerialized': _serializeScheduleBlocks(),
       };
 
       if (_email != null && _email!.isNotEmpty) {
@@ -1768,12 +1767,9 @@ menuPosition = RelativeRect.fromLTRB(
         data: updateData,
         newProfileImageBytes: _newProfileImageBytes,
         removePhoto: _removeExistingPhoto,
-        existingPhotoPath: _tutorDocumentData?['photoPath'] as String?,
       );
       final bool removedPhoto = _removeExistingPhoto;
       final String? nextPhotoUrl = result.photoUrl ?? (removedPhoto ? null : _photoUrl);
-      final String? nextPhotoPath = result.photoPath ??
-          (removedPhoto ? null : _tutorDocumentData?['photoPath'] as String?);
 
       if (!mounted) {
         return;
@@ -1789,7 +1785,6 @@ menuPosition = RelativeRect.fromLTRB(
           ...?_tutorDocumentData,
           ...updateData,
           'photoUrl': nextPhotoUrl,
-          'photoPath': nextPhotoPath,
         };
       });
 

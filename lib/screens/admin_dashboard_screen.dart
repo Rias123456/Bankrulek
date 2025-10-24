@@ -1,10 +1,13 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 
-import '../providers/auth_provider.dart';
+import '../models/admin_tutor.dart';
+import '../services/tutor_service.dart';
+import 'admin_tutor_profile_screen.dart';
 import 'home_screen.dart';
 
 /// หน้าควบคุมสำหรับแอดมิน
@@ -14,6 +17,7 @@ class AdminDashboardScreen extends StatefulWidget {
   @override
   State<AdminDashboardScreen> createState() => _AdminDashboardScreenState();
 }
+typedef Tutor = AdminTutor;
 
 enum _TutorAction { edit, status, travel, delete }
 
@@ -191,6 +195,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   static const double _dayLabelWidth = 72;
   static const String _scheduleSerializationPrefix = 'SCHEDULE_V1:';
 
+  final TutorService _tutorService = TutorService();
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _tutorSubscription;
+  List<Tutor> _tutors = <Tutor>[];
+  bool _isLoading = true;
+  String? _loadError;
+
   final ScrollController _timelineScrollController = ScrollController();
   final Set<String> _selectedSubjects = <String>{};
   final Map<String, _CachedSchedule> _scheduleCache = <String, _CachedSchedule>{};
@@ -206,9 +216,39 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   double get _slotWidth => _scheduleHourWidth / _slotsPerHour;
 
   @override
+  void initState() {
+    super.initState();
+    _listenTutors();
+  }
+
+  @override
   void dispose() {
+    _tutorSubscription?.cancel();
     _timelineScrollController.dispose();
     super.dispose();
+  }
+
+  void _listenTutors() {
+    _tutorSubscription?.cancel();
+    _tutorSubscription = FirebaseFirestore.instance
+        .collection('tutors')
+        .snapshots()
+        .listen((QuerySnapshot<Map<String, dynamic>> snapshot) {
+      final List<Tutor> tutors = snapshot.docs
+          .map(AdminTutor.fromSnapshot)
+          .toList()
+        ..sort((Tutor a, Tutor b) => a.nickname.toLowerCase().compareTo(b.nickname.toLowerCase()));
+      setState(() {
+        _tutors = tutors;
+        _isLoading = false;
+        _loadError = null;
+      });
+    }, onError: (Object error, StackTrace stackTrace) {
+      setState(() {
+        _isLoading = false;
+        _loadError = 'ไม่สามารถโหลดข้อมูลติวเตอร์ได้';
+      });
+    });
   }
 
   Future<void> _showEditTutorDialog(Tutor tutor) async {
@@ -353,27 +393,33 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                             return;
                           }
                           setDialogState(() => isSaving = true);
-                          final AuthProvider authProvider = this.context.read<AuthProvider>();
-                          final Tutor updatedTutor = tutor.copyWith(
-                            nickname: nickname,
-                            phoneNumber: phoneNumber,
-                            lineId: lineId,
-                            email: email,
-                            password: password,
-                            status: selectedStatus,
-                            travelDuration: travelDuration,
-                          );
-                          final String? error = await authProvider.updateTutor(
-                            originalEmail: tutor.email,
-                            updatedTutor: updatedTutor,
-                          );
+                          final Map<String, dynamic> payload = <String, dynamic>{
+                            'nickname': nickname,
+                            'phone': phoneNumber,
+                            'lineId': lineId,
+                            'email': email,
+                            'password': password,
+                            'currentStatus': selectedStatus,
+                            'travelTime': travelDuration,
+                          };
+                          String? errorMessage;
+                          try {
+                            await _tutorService.updateTutor(
+                              tutorId: tutor.id,
+                              data: payload,
+                            );
+                          } on FirebaseException catch (error) {
+                            errorMessage = error.message;
+                          } catch (error) {
+                            errorMessage = error.toString();
+                          }
                           if (!mounted) {
                             return;
                           }
-                          if (error != null) {
+                          if (errorMessage != null) {
                             setDialogState(() => isSaving = false);
                             ScaffoldMessenger.of(this.context).showSnackBar(
-                              SnackBar(content: Text(error)),
+                              SnackBar(content: Text(errorMessage!)),
                             );
                             return;
                           }
@@ -406,7 +452,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   }
 
   Future<void> _handleLogout() async {
-    await context.read<AuthProvider>().logout();
+    try {
+      await _tutorService.logout();
+    } catch (_) {
+      // Ignore logout errors for admin flow.
+    }
     if (!mounted) {
       return;
     }
@@ -442,7 +492,16 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                       ? null
                       : () async {
                           setDialogState(() => isDeleting = true);
-                          final bool success = await this.context.read<AuthProvider>().deleteTutor(tutor.email);
+                          bool success = false;
+                          try {
+                            success = await _tutorService.deleteTutor(
+                              tutorId: tutor.id,
+                              email: tutor.email,
+                              password: tutor.password,
+                            );
+                          } catch (_) {
+                            success = false;
+                          }
                           if (!mounted) {
                             return;
                           }
@@ -512,17 +571,23 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   }
 
   Future<void> _updateTutorStatus(Tutor tutor, String newStatus) async {
-    final AuthProvider authProvider = context.read<AuthProvider>();
-    final String? error = await authProvider.updateTutor(
-      originalEmail: tutor.email,
-      updatedTutor: tutor.copyWith(status: newStatus),
-    );
+    String? errorMessage;
+    try {
+      await _tutorService.updateTutor(
+        tutorId: tutor.id,
+        data: <String, dynamic>{'currentStatus': newStatus},
+      );
+    } on FirebaseException catch (error) {
+      errorMessage = error.message;
+    } catch (error) {
+      errorMessage = error.toString();
+    }
     if (!mounted) {
       return;
     }
-    if (error != null) {
+    if (errorMessage != null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error)),
+        SnackBar(content: Text(errorMessage!)),
       );
       return;
     }
@@ -588,18 +653,24 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                                     return;
                                   }
                                   setState(() => isSaving = true);
-                                  final AuthProvider authProvider = this.context.read<AuthProvider>();
-                                  final String? error = await authProvider.updateTutor(
-                                    originalEmail: tutor.email,
-                                    updatedTutor: tutor.copyWith(travelDuration: value),
-                                  );
+                                  String? errorMessage;
+                                  try {
+                                    await _tutorService.updateTutor(
+                                      tutorId: tutor.id,
+                                      data: <String, dynamic>{'travelTime': value},
+                                    );
+                                  } on FirebaseException catch (error) {
+                                    errorMessage = error.message;
+                                  } catch (error) {
+                                    errorMessage = error.toString();
+                                  }
                                   if (!mounted) {
                                     return;
                                   }
-                                  if (error != null) {
+                                  if (errorMessage != null) {
                                     setState(() => isSaving = false);
                                     ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(content: Text(error)),
+                                      SnackBar(content: Text(errorMessage!)),
                                     );
                                     return;
                                   }
@@ -632,81 +703,55 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
+    Widget body;
+    if (_isLoading) {
+      body = const Center(child: CircularProgressIndicator());
+    } else if (_loadError != null) {
+      body = Center(child: Text(_loadError!));
+    } else if (_tutors.isEmpty) {
+      body = const Center(child: Text('ยังไม่มีติวเตอร์ในระบบ'));
+    } else {
+      final List<Tutor> sortedTutors = List<Tutor>.from(_tutors)
+        ..sort((Tutor a, Tutor b) => a.nickname.toLowerCase().compareTo(b.nickname.toLowerCase()));
+      final List<Tutor> filteredTutors = sortedTutors.where(_matchesFilters).toList();
+      body = CustomScrollView(
+        slivers: [
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+            sliver: SliverList(
+              delegate: SliverChildListDelegate(
+                <Widget>[
+                  _buildSubjectFilterSection(),
+                  const SizedBox(height: 16),
+                  _buildScheduleFilterCard(),
+                  const SizedBox(height: 16),
+                  _buildFilterSummary(filteredTutors.length, sortedTutors.length),
+                  const SizedBox(height: 8),
+                ],
+              ),
+            ),
+          ),
+          if (filteredTutors.isEmpty)
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              sliver: SliverToBoxAdapter(
+                child: _buildEmptyTutorMessage(),
+              ),
+            )
+          else
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              sliver: _buildTutorList(filteredTutors),
+            ),
+        ],
+      );
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('แดชบอร์ดแอดมิน'),
       ),
-      body: Consumer<AuthProvider>(
-        builder: (BuildContext context, AuthProvider authProvider, _) {
-          if (authProvider.isLoading) {
-            return const Center(
-              child: CircularProgressIndicator(),
-            );
-          }
-          if (!authProvider.isAdminLoggedIn) {
-            return Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text(
-                    'กรุณาล็อกอินก่อน',
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 16),
-                  FilledButton(
-                    onPressed: () => Navigator.pushReplacementNamed(
-                      context,
-                      '/admin-login',
-                    ),
-                    child: const Text('ไปหน้าแอดมิน'),
-                  ),
-                ],
-              ),
-            );
-          }
-          final List<Tutor> tutors = authProvider.tutors;
-          if (tutors.isEmpty) {
-            return const Center(
-              child: Text('ยังไม่มีติวเตอร์ในระบบ'),
-            );
-          }
-          final List<Tutor> sortedTutors = List<Tutor>.from(tutors)
-            ..sort((Tutor a, Tutor b) => a.nickname.toLowerCase().compareTo(b.nickname.toLowerCase()));
-          final List<Tutor> filteredTutors = sortedTutors.where(_matchesFilters).toList();
-
-          return CustomScrollView(
-            slivers: [
-              SliverPadding(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-                sliver: SliverList(
-                  delegate: SliverChildListDelegate(
-                    <Widget>[
-                      _buildSubjectFilterSection(),
-                      const SizedBox(height: 16),
-                      _buildScheduleFilterCard(),
-                      const SizedBox(height: 16),
-                      _buildFilterSummary(filteredTutors.length, sortedTutors.length),
-                      const SizedBox(height: 8),
-                    ],
-                  ),
-                ),
-              ),
-              if (filteredTutors.isEmpty)
-                SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                  sliver: SliverToBoxAdapter(
-                    child: _buildEmptyTutorMessage(),
-                  ),
-                )
-              else
-                SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                  sliver: _buildTutorList(filteredTutors),
-                ),
-            ],
-          );
-        },
-      ),
+      body: body,
     );
   }
 
@@ -1179,13 +1224,16 @@ Widget _buildSubjectFilterSection() {
   }
 
   Widget _buildTutorTile(Tutor tutor) {
-    MemoryImage? avatarImage;
+    ImageProvider<Object>? avatarImage;
     if (tutor.profileImageBase64 != null && tutor.profileImageBase64!.isNotEmpty) {
       try {
         avatarImage = MemoryImage(base64Decode(tutor.profileImageBase64!));
       } catch (_) {
         avatarImage = null;
       }
+    }
+    if (avatarImage == null && tutor.photoUrl != null && tutor.photoUrl!.isNotEmpty) {
+      avatarImage = NetworkImage(tutor.photoUrl!);
     }
     final BorderRadius borderRadius = BorderRadius.circular(16);
     return Material(
@@ -1194,8 +1242,11 @@ Widget _buildSubjectFilterSection() {
       color: Theme.of(context).colorScheme.surface,
       child: InkWell(
         onTap: () {
-          context.read<AuthProvider>().impersonateTutor(tutor);
-          Navigator.of(context).pushNamed('/login-success');
+          Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (BuildContext context) => AdminTutorProfileScreen(tutor: tutor),
+            ),
+          );
         },
         borderRadius: borderRadius,
         child: Padding(
@@ -1364,7 +1415,10 @@ Widget _buildSubjectFilterSection() {
     if (cached != null && cached.raw == raw) {
       return cached.blocks;
     }
-    final List<_ScheduleBlock> parsed = _parseScheduleBlocks(raw);
+    List<_ScheduleBlock> parsed = _parseScheduleBlocks(raw);
+    if (parsed.isEmpty && tutor.schedule.isNotEmpty) {
+      parsed = _scheduleBlocksFromList(tutor.schedule);
+    }
     _scheduleCache[cacheKey] = _CachedSchedule(raw: raw, blocks: parsed);
     return parsed;
   }
@@ -1438,6 +1492,87 @@ Widget _buildSubjectFilterSection() {
     } catch (_) {
       return const <_ScheduleBlock>[];
     }
+  }
+
+  List<_ScheduleBlock> _scheduleBlocksFromList(List<Map<String, dynamic>> schedule) {
+    if (schedule.isEmpty) {
+      return const <_ScheduleBlock>[];
+    }
+    final List<_ScheduleBlock> blocks = <_ScheduleBlock>[];
+    int nextId = 1;
+    for (final Map<String, dynamic> entry in schedule) {
+      final int? dayRaw = (entry['day'] as int?) ?? (entry['dayIndex'] as int?);
+      final String? start = entry['start'] as String?;
+      final String? end = entry['end'] as String?;
+      if (dayRaw == null || start == null || end == null) {
+        continue;
+      }
+      final int? startSlot = _slotFromTimeString(start);
+      final int? endSlot = _slotFromTimeString(end);
+      if (startSlot == null || endSlot == null) {
+        continue;
+      }
+      final int safeDay = _resolveDayIndexFromStored(dayRaw);
+      final int safeStart = _clampInt(startSlot, 0, _totalSlots - 1);
+      final int safeEnd = _clampInt(endSlot, safeStart + 1, _totalSlots);
+      final int durationSlots = math.max(1, safeEnd - safeStart);
+      DateTime? date;
+      final String? dateValue = entry['date'] as String?;
+      if (dateValue != null && dateValue.isNotEmpty) {
+        try {
+          date = DateTime.parse(dateValue);
+        } catch (_) {
+          date = null;
+        }
+      }
+      blocks.add(
+        _ScheduleBlock(
+          id: nextId++,
+          dayIndex: safeDay,
+          startSlot: safeStart,
+          durationSlots: durationSlots,
+          type: (entry['studentName'] as String?)?.trim().isNotEmpty == true
+              ? _ScheduleBlockType.teaching
+              : _ScheduleBlockType.unavailable,
+          note: entry['studentName'] as String?,
+          date: date,
+          isRecurring: entry['isRecurring'] as bool? ?? false,
+        ),
+      );
+    }
+    return blocks;
+  }
+
+  int _resolveDayIndexFromStored(int rawValue) {
+    if (rawValue >= 1 && rawValue <= 7) {
+      final int weekday = rawValue == 7 ? DateTime.sunday : rawValue;
+      return (weekday - DateTime.saturday + 7) % 7;
+    }
+    return _clampInt(rawValue, 0, _dayLabels.length - 1);
+  }
+
+  int? _slotFromTimeString(String value) {
+    final int? minutes = _minutesSinceScheduleStart(value);
+    if (minutes == null) {
+      return null;
+    }
+    if (minutes < 0) {
+      return 0;
+    }
+    return (minutes / _minutesPerSlot).floor();
+  }
+
+  int? _minutesSinceScheduleStart(String value) {
+    final RegExpMatch? match = RegExp(r'^(\d{1,2}):(\d{2})$').firstMatch(value.trim());
+    if (match == null) {
+      return null;
+    }
+    final int? hour = int.tryParse(match.group(1)!);
+    final int? minute = int.tryParse(match.group(2)!);
+    if (hour == null || minute == null) {
+      return null;
+    }
+    return hour * 60 + minute - _scheduleStartHour * 60;
   }
 
   bool _blockAppliesToDay(_ScheduleBlock block, int dayIndex) {

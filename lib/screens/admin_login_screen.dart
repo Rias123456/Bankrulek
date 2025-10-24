@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:provider/provider.dart';
-
-import '../providers/auth_provider.dart';
 import '../widgets/primary_button.dart';
+
+const String _adminPassword = '******';
 
 /// หน้าล็อกอินสำหรับผู้ดูแลระบบ / Admin login screen
 class AdminLoginScreen extends StatefulWidget {
@@ -31,18 +30,18 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
       return;
     }
     setState(() => _isSubmitting = true);
-    final AuthProvider authProvider = context.read<AuthProvider>();
-    final String? error = await authProvider.loginAdmin(
-      password: _passwordController.text.trim(),
-    );
+    final String password = _passwordController.text.trim();
+    await Future<void>.delayed(const Duration(milliseconds: 50));
     setState(() => _isSubmitting = false);
-    if (!mounted) return;
-
-    if (error != null) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+    if (!mounted) {
       return;
     }
-
+    if (password != _adminPassword) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('ข้อมูลไม่ถูกต้อง / Invalid admin credentials')),
+      );
+      return;
+    }
     Navigator.pushReplacementNamed(context, '/admin-dashboard');
   }
 

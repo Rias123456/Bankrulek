@@ -96,8 +96,6 @@ class _RegisterTutorScreenState extends State<RegisterTutorScreen> {
         currentStatus: 'เป็นครูอยู่',
         travelTime: '',
         subjects: const <String>[],
-        schedule: const <Map<String, dynamic>>[],
-        scheduleSerialized: '',
         profileImageBytes: _profileImageBytes,
       );
 

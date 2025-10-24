@@ -2,22 +2,22 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 
-import '../providers/auth_provider.dart';
+import '../models/admin_tutor.dart';
 
 class AdminTutorProfileScreen extends StatelessWidget {
   const AdminTutorProfileScreen({super.key, required this.tutor});
 
-  final Tutor tutor;
+  final AdminTutor tutor;
 
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final Color backgroundColor = const Color(0xFFFFE5EC);
-    final String fullName = _buildFullName();
+    final String fullName = tutor.fullName.trim();
     final String nickname = tutor.nickname.isNotEmpty ? tutor.nickname : '-';
     final String lineId = tutor.lineId.isNotEmpty ? tutor.lineId : '-';
     final String phoneNumber = tutor.phoneNumber.isNotEmpty ? tutor.phoneNumber : '-';
-    final String currentActivity = tutor.currentActivity.isNotEmpty ? tutor.currentActivity : 'ยังไม่ได้ระบุ';
+    final String currentActivity = tutor.status.isNotEmpty ? tutor.status : 'ยังไม่ได้ระบุ';
     final String travelDuration = tutor.travelDuration.isNotEmpty ? tutor.travelDuration : 'ยังไม่ได้ระบุ';
 
     ImageProvider<Object>? avatarImage;
@@ -27,6 +27,9 @@ class AdminTutorProfileScreen extends StatelessWidget {
       } catch (_) {
         avatarImage = null;
       }
+    }
+    if (avatarImage == null && tutor.photoUrl != null && tutor.photoUrl!.isNotEmpty) {
+      avatarImage = NetworkImage(tutor.photoUrl!);
     }
 
     return Scaffold(
@@ -141,13 +144,6 @@ class AdminTutorProfileScreen extends StatelessWidget {
     );
   }
 
-  String _buildFullName() {
-    final List<String> parts = <String>[tutor.firstName, tutor.lastName]
-        .map((String value) => value.trim())
-        .where((String value) => value.isNotEmpty)
-        .toList();
-    return parts.join(' ');
-  }
 }
 
 class _InfoCard extends StatelessWidget {
