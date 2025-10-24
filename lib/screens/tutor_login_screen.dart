@@ -1,7 +1,8 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 
-import '../providers/auth_provider.dart';
+import '../services/tutor_service.dart';
+import '../utils/session.dart';
 import '../widgets/primary_button.dart';
 import 'login_success_screen.dart';
 
@@ -18,6 +19,7 @@ class _TutorLoginScreenState extends State<TutorLoginScreen> {
 
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
+  final TutorService _tutorService = TutorService();
 
   bool _isSubmitting = false;
 
@@ -33,19 +35,15 @@ class _TutorLoginScreenState extends State<TutorLoginScreen> {
 
     setState(() => _isSubmitting = true);
     try {
-      final AuthProvider authProvider = context.read<AuthProvider>();
-      final String? error = await authProvider.loginTutor(
-        email: _emailController.text.trim(),
-        password: _passwordController.text.trim(),
+      final String email = _emailController.text.trim();
+      final String password = _passwordController.text.trim();
+      final String tutorId = await _tutorService.login(
+        email: email,
+        password: password,
       );
-      if (!mounted) return;
-      if (error != null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(error)),
-        );
-        return;
-      }
+      await SessionHelper.saveTutorId(tutorId);
 
+      if (!mounted) return;
       Navigator.pushReplacementNamed(
         context,
         '/login-success',
@@ -53,6 +51,25 @@ class _TutorLoginScreenState extends State<TutorLoginScreen> {
           title: 'ล็อกอินสำเร็จ',
           message: 'ยินดีต้อนรับกลับ! คุณสามารถกลับหน้าหลักได้จากปุ่มด้านล่าง',
         ),
+      );
+    } on FirebaseAuthException catch (error) {
+      if (!mounted) return;
+      String message;
+      switch (error.code) {
+        case 'user-not-found':
+          message = 'ไม่พบบัญชีผู้ใช้';
+          break;
+        case 'wrong-password':
+          message = 'รหัสผ่านไม่ถูกต้อง';
+          break;
+        case 'invalid-email':
+          message = 'รูปแบบอีเมลไม่ถูกต้อง';
+          break;
+        default:
+          message = error.message ?? 'ไม่สามารถเข้าสู่ระบบได้';
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
       );
     } catch (error) {
       if (!mounted) return;

@@ -1,13 +1,10 @@
-import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
 
-/// ผลลัพธ์จากการอัปเดตข้อมูลติวเตอร์ ซึ่งจะบอก URL/พาธรูปภาพล่าสุด
 class TutorUpdateResult {
   const TutorUpdateResult({
     this.photoUrl,
@@ -18,36 +15,77 @@ class TutorUpdateResult {
   final String? photoPath;
 }
 
-/// บริการสำหรับจัดการข้อมูลติวเตอร์กับ Firebase
+class _UploadResult {
+  const _UploadResult({
+    required this.url,
+    required this.path,
+  });
+
+  final String url;
+  final String path;
+}
+
+/// บริการจัดการข้อมูลติวเตอร์กับ Firebase Auth, Firestore และ Storage
 class TutorService {
   TutorService({
+    FirebaseAuth? auth,
     FirebaseFirestore? firestore,
     FirebaseStorage? storage,
-  })  : _firestore = firestore ?? FirebaseFirestore.instance,
+  })  : _auth = auth ?? FirebaseAuth.instance,
+        _firestore = firestore ?? FirebaseFirestore.instance,
         _storage = storage ?? FirebaseStorage.instance;
 
+  final FirebaseAuth _auth;
   final FirebaseFirestore _firestore;
   final FirebaseStorage _storage;
 
-  FirebaseApp? _secondaryApp;
   FirebaseAuth? _secondaryAuth;
 
   CollectionReference<Map<String, dynamic>> get _tutorCollection =>
       _firestore.collection('tutors');
 
-  /// ดึงข้อมูลเอกสารของติวเตอร์ตามไอดี
-  Future<Map<String, dynamic>?> fetchTutorDocument(String tutorId) async {
+  /// เข้าสู่ระบบด้วยอีเมลและรหัสผ่าน แล้วคืนค่า tutorId (uid)
+  Future<String> login({
+    required String email,
+    required String password,
+  }) async {
+    final UserCredential credential = await _auth.signInWithEmailAndPassword(
+      email: email,
+      password: password,
+    );
+    final User? user = credential.user;
+    if (user == null) {
+      throw FirebaseAuthException(
+        code: 'user-not-found',
+        message: 'ไม่พบบัญชีผู้ใช้',
+      );
+    }
+    return user.uid;
+  }
+
+  /// ออกจากระบบ Firebase Auth
+  Future<void> logout() async {
+    await _auth.signOut();
+  }
+
+  /// ดึงข้อมูลติวเตอร์จาก Firestore
+  Future<Map<String, dynamic>?> getTutor(String tutorId) async {
     final DocumentSnapshot<Map<String, dynamic>> snapshot =
         await _tutorCollection.doc(tutorId).get();
     return snapshot.data();
   }
 
-  /// สตรีมรายการติวเตอร์ทั้งหมดแบบเรียลไทม์
-  Stream<QuerySnapshot<Map<String, dynamic>>> watchTutors() {
-    return _tutorCollection.snapshots();
+  /// ใช้สำหรับโค้ดที่ยังเรียกเมธอดเดิม fetchTutorDocument
+  Future<Map<String, dynamic>?> fetchTutorDocument(String tutorId) {
+    return getTutor(tutorId);
   }
 
-  /// สร้างข้อมูลติวเตอร์ใหม่ใน Firestore พร้อมอัปโหลดรูปโปรไฟล์หากมี
+  /// สตรีมรายชื่อติวเตอร์ทั้งหมดสำหรับหน้าแอดมิน
+  Stream<QuerySnapshot<Map<String, dynamic>>> watchTutors() {
+    return _tutorCollection.orderBy('createdAt', descending: true).snapshots();
+  }
+
+  /// เพิ่มข้อมูลติวเตอร์ใหม่ลง Firestore และอัปโหลดรูปถ้ามี
   Future<void> addTutor({
     required String tutorId,
     required String fullName,
@@ -63,12 +101,10 @@ class TutorService {
     String scheduleSerialized = '',
     Uint8List? profileImageBytes,
   }) async {
-    final List<String> normalizedSubjects = subjects
-        .map((String subject) => subject.trim())
-        .where((String subject) => subject.isNotEmpty)
-        .toList();
+    final List<String> normalizedSubjects =
+        _normalizeSubjects(List<dynamic>.from(subjects));
     final List<Map<String, dynamic>> normalizedSchedule =
-        _normalizeSchedule(schedule);
+        _normalizeSchedule(List<dynamic>.from(schedule));
 
     String? photoUrl;
     String? photoPath;
@@ -102,7 +138,7 @@ class TutorService {
     await _tutorCollection.doc(tutorId).set(payload);
   }
 
-  /// อัปเดตข้อมูลติวเตอร์ใน Firestore พร้อมจัดการรูปใหม่หรือการลบรูป
+  /// อัปเดตข้อมูลติวเตอร์และจัดการรูปโปรไฟล์หากเปลี่ยนหรือลบออก
   Future<TutorUpdateResult> updateTutor({
     required String tutorId,
     required Map<String, dynamic> data,
@@ -110,61 +146,52 @@ class TutorService {
     bool removePhoto = false,
     String? existingPhotoPath,
   }) async {
+    final Map<String, dynamic> updates = Map<String, dynamic>.from(data);
+
+    if (updates.containsKey('subjects')) {
+      updates['subjects'] = _normalizeSubjects(
+        List<dynamic>.from(updates['subjects'] as List),
+      );
+    }
+    if (updates.containsKey('schedule')) {
+      updates['schedule'] = _normalizeSchedule(
+        List<dynamic>.from(updates['schedule'] as List),
+      );
+    }
+
     String? nextPhotoUrl;
-    String? nextPhotoPath;
+    String? nextPhotoPath = existingPhotoPath;
 
     if (newProfileImageBytes != null && newProfileImageBytes.isNotEmpty) {
-      if (existingPhotoPath != null && existingPhotoPath.isNotEmpty) {
-        await _deleteStoragePath(existingPhotoPath);
-      }
       final _UploadResult upload = await _uploadTutorImage(
         tutorId: tutorId,
         data: newProfileImageBytes,
       );
       nextPhotoUrl = upload.url;
       nextPhotoPath = upload.path;
-      data['photoUrl'] = nextPhotoUrl;
-      data['photoPath'] = nextPhotoPath;
+      updates['photoUrl'] = nextPhotoUrl;
+      updates['photoPath'] = nextPhotoPath;
     } else if (removePhoto) {
-      if (existingPhotoPath != null && existingPhotoPath.isNotEmpty) {
-        await _deleteStoragePath(existingPhotoPath);
-      }
-      data['photoUrl'] = null;
-      data['photoPath'] = null;
+      final String resolvedPath =
+          existingPhotoPath ?? _profileStoragePath(tutorId);
+      await _deleteStoragePath(resolvedPath);
+      updates['photoUrl'] = null;
+      updates['photoPath'] = null;
+      nextPhotoUrl = null;
+      nextPhotoPath = null;
     }
 
-    if (data.containsKey('subjects')) {
-      final dynamic rawSubjects = data['subjects'];
-      if (rawSubjects is List) {
-        data['subjects'] = rawSubjects
-            .map((dynamic subject) => subject.toString().trim())
-            .where((String subject) => subject.isNotEmpty)
-            .toList();
-      }
-    }
+    updates['updatedAt'] = FieldValue.serverTimestamp();
 
-    if (data.containsKey('schedule')) {
-      final dynamic rawSchedule = data['schedule'];
-      if (rawSchedule is List) {
-        data['schedule'] = _normalizeSchedule(
-          rawSchedule.cast<Map<String, dynamic>>(),
-        );
-      }
-    }
-
-    data['updatedAt'] = FieldValue.serverTimestamp();
-
-    await _tutorCollection.doc(tutorId).set(data, SetOptions(merge: true));
+    await _tutorCollection.doc(tutorId).set(updates, SetOptions(merge: true));
 
     return TutorUpdateResult(
-      photoUrl: nextPhotoUrl ??
-          (removePhoto ? null : data['photoUrl'] as String?),
-      photoPath: nextPhotoPath ??
-          (removePhoto ? null : data['photoPath'] as String?),
+      photoUrl: nextPhotoUrl ?? updates['photoUrl'] as String?,
+      photoPath: nextPhotoPath ?? updates['photoPath'] as String?,
     );
   }
 
-  /// อัปเดตรหัสผ่านหรืออีเมลของบัญชีผู้ใช้ใน Firebase Auth
+  /// อัปเดตอีเมลหรือรหัสผ่านของบัญชีติวเตอร์ใน Firebase Auth
   Future<String?> updateTutorAuthCredentials({
     required String oldEmail,
     required String oldPassword,
@@ -174,9 +201,8 @@ class TutorService {
     final String trimmedEmail = newEmail?.trim() ?? '';
     final bool shouldUpdateEmail = trimmedEmail.isNotEmpty &&
         trimmedEmail.toLowerCase() != oldEmail.toLowerCase();
-    final bool shouldUpdatePassword = newPassword != null &&
-        newPassword.isNotEmpty &&
-        newPassword != oldPassword;
+    final bool shouldUpdatePassword =
+        newPassword != null && newPassword.isNotEmpty && newPassword != oldPassword;
 
     if (!shouldUpdateEmail && !shouldUpdatePassword) {
       return null;
@@ -199,149 +225,107 @@ class TutorService {
       if (shouldUpdatePassword) {
         await user.updatePassword(newPassword!);
       }
-      await user.reload();
       await auth.signOut();
       return null;
     } on FirebaseAuthException catch (error) {
-      return _mapAuthException(error);
-    } catch (error) {
-      return error.toString();
+      return error.message ?? 'ไม่สามารถอัปเดตข้อมูลการเข้าสู่ระบบได้';
     }
   }
 
-  /// ลบบัญชีติวเตอร์ทั้งใน Firestore และ Firebase Auth (หากมีข้อมูลรหัสผ่าน)
+  /// ลบข้อมูลติวเตอร์ทั้งจาก Firestore, Storage และ Firebase Auth
   Future<bool> deleteTutor({
     required String tutorId,
-    String? email,
-    String? password,
+    required String email,
+    required String password,
     String? photoPath,
   }) async {
     try {
       await _tutorCollection.doc(tutorId).delete();
-    } on FirebaseException catch (error) {
-      debugPrint('Failed to delete tutor document: ${error.message}');
-      return false;
-    }
+      final String resolvedPath = photoPath ?? _profileStoragePath(tutorId);
+      await _deleteStoragePath(resolvedPath);
 
-    if (photoPath != null && photoPath.isNotEmpty) {
-      await _deleteStoragePath(photoPath);
-    }
-
-    if (email != null && email.isNotEmpty &&
-        password != null && password.isNotEmpty) {
-      await deleteTutorAccount(email: email, password: password);
-    }
-
-    return true;
-  }
-
-  /// ลบบัญชีผู้ใช้ใน Firebase Auth โดยใช้ข้อมูลล็อกอินที่เก็บไว้
-  Future<String?> deleteTutorAccount({
-    required String email,
-    required String password,
-  }) async {
-    try {
       final FirebaseAuth auth = await _ensureSecondaryAuth();
       final UserCredential credential = await auth.signInWithEmailAndPassword(
         email: email,
         password: password,
       );
       final User? user = credential.user;
-      if (user == null) {
-        await auth.signOut();
-        return 'ไม่พบบัญชีสำหรับลบ';
+      if (user != null) {
+        await user.delete();
       }
-      await user.delete();
       await auth.signOut();
-      return null;
+      return true;
     } on FirebaseAuthException catch (error) {
-      return _mapAuthException(error);
-    } catch (error) {
-      return error.toString();
+      debugPrint('Delete tutor auth error: ${error.message}');
+      return false;
+    } on FirebaseException catch (error) {
+      debugPrint('Delete tutor storage/firestore error: ${error.message}');
+      return false;
     }
+  }
+
+  List<String> _normalizeSubjects(List<dynamic> subjects) {
+    return subjects
+        .map((dynamic subject) => subject?.toString().trim() ?? '')
+        .where((String subject) => subject.isNotEmpty)
+        .toList();
+  }
+
+  List<Map<String, dynamic>> _normalizeSchedule(
+    List<dynamic> schedule,
+  ) {
+    return schedule
+        .map((dynamic block) {
+          if (block is Map<String, dynamic>) {
+            return Map<String, dynamic>.from(block);
+          }
+          if (block is Map) {
+            return Map<String, dynamic>.from(block.cast<String, dynamic>());
+          }
+          return <String, dynamic>{};
+        })
+        .where((Map<String, dynamic> block) => block.isNotEmpty)
+        .toList();
   }
 
   Future<_UploadResult> _uploadTutorImage({
     required String tutorId,
     required Uint8List data,
   }) async {
-    final String fileName =
-        'tutor_profiles/$tutorId/${DateTime.now().millisecondsSinceEpoch}.jpg';
-    final Reference ref = _storage.ref(fileName);
-    final SettableMetadata metadata =
-        SettableMetadata(contentType: 'image/jpeg');
-    final TaskSnapshot snapshot = await ref.putData(data, metadata);
-    final String downloadUrl = await snapshot.ref.getDownloadURL();
-    return _UploadResult(url: downloadUrl, path: fileName);
+    final String path = _profileStoragePath(tutorId);
+    final Reference ref = _storage.ref(path);
+    final SettableMetadata metadata = SettableMetadata(
+      contentType: 'image/jpeg',
+    );
+    final UploadTask uploadTask = ref.putData(data, metadata);
+    await uploadTask.whenComplete(() {});
+    final String url = await ref.getDownloadURL();
+    return _UploadResult(url: url, path: path);
   }
 
   Future<void> _deleteStoragePath(String path) async {
     try {
       await _storage.ref(path).delete();
-    } on FirebaseException catch (_) {
-      // Ignore missing files to keep workflow smooth.
+    } on FirebaseException catch (error) {
+      if (error.code != 'object-not-found') {
+        rethrow;
+      }
     }
   }
 
-  List<Map<String, dynamic>> _normalizeSchedule(
-    List<Map<String, dynamic>> schedule,
-  ) {
-    final List<Map<String, dynamic>> result = <Map<String, dynamic>>[];
-    for (final Map<String, dynamic> entry in schedule) {
-      result.add(Map<String, dynamic>.from(entry));
-    }
-    return result;
+  String _profileStoragePath(String tutorId) {
+    return 'tutors/$tutorId/profile.jpg';
   }
 
   Future<FirebaseAuth> _ensureSecondaryAuth() async {
     if (_secondaryAuth != null) {
       return _secondaryAuth!;
     }
-
-    final FirebaseApp defaultApp = Firebase.app();
-    try {
-      _secondaryApp = Firebase.app('tutor-service-helper');
-    } on FirebaseException catch (error) {
-      if (error.code == 'no-app') {
-        _secondaryApp = await Firebase.initializeApp(
-          name: 'tutor-service-helper',
-          options: defaultApp.options,
-        );
-      } else {
-        rethrow;
-      }
+    final FirebaseAuth auth = FirebaseAuth.instanceFor(app: _auth.app);
+    if (kIsWeb) {
+      await auth.setPersistence(Persistence.NONE);
     }
-
-    _secondaryAuth = FirebaseAuth.instanceFor(app: _secondaryApp!);
-    return _secondaryAuth!;
+    _secondaryAuth = auth;
+    return auth;
   }
-
-  String _mapAuthException(FirebaseAuthException error) {
-    switch (error.code) {
-      case 'user-not-found':
-        return 'ไม่พบบัญชีผู้ใช้';
-      case 'wrong-password':
-        return 'รหัสผ่านไม่ถูกต้อง';
-      case 'email-already-in-use':
-        return 'อีเมลนี้ถูกใช้แล้ว';
-      case 'weak-password':
-        return 'รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร';
-      case 'invalid-email':
-        return 'รูปแบบอีเมลไม่ถูกต้อง';
-      case 'requires-recent-login':
-        return 'กรุณาเข้าสู่ระบบใหม่ก่อนทำรายการ';
-      default:
-        return error.message ?? 'เกิดข้อผิดพลาดไม่ทราบสาเหตุ';
-    }
-  }
-}
-
-class _UploadResult {
-  const _UploadResult({
-    required this.url,
-    required this.path,
-  });
-
-  final String url;
-  final String path;
 }

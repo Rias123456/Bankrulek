@@ -4,16 +4,14 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:provider/provider.dart';
 
-import '../providers/auth_provider.dart';
 import '../services/tutor_service.dart';
 import '../widgets/primary_button.dart';
+import '../utils/session.dart';
 
 enum ScheduleBlockType { teaching, unavailable }
 
@@ -378,19 +376,19 @@ static final List<String> _orderedSubjectOptions = _subjectLevels.entries
   Future<void> _loadTutorProfile() async {
     setState(() => _isLoadingProfile = true);
     try {
-      final AuthProvider authProvider = context.read<AuthProvider>();
-      final Tutor? impersonatedTutor = authProvider.currentTutor;
-      String? tutorId = impersonatedTutor?.id;
+      String? tutorId = await SessionHelper.getTutorId();
       Map<String, dynamic>? data;
 
-      if (tutorId != null && tutorId.isNotEmpty) {
-        data = await _tutorService.fetchTutorDocument(tutorId);
-      } else {
+      if (tutorId == null || tutorId.isEmpty) {
         final User? user = FirebaseAuth.instance.currentUser;
         tutorId = user?.uid;
         if (tutorId != null && tutorId.isNotEmpty) {
-          data = await _tutorService.fetchTutorDocument(tutorId);
+          await SessionHelper.saveTutorId(tutorId);
         }
+      }
+
+      if (tutorId != null && tutorId.isNotEmpty) {
+        data = await _tutorService.getTutor(tutorId);
       }
 
       if (!mounted) {
@@ -1818,7 +1816,12 @@ menuPosition = RelativeRect.fromLTRB(
   }
 
   Future<void> _handleLogout() async {
-    await context.read<AuthProvider>().logout();
+    try {
+      await _tutorService.logout();
+    } catch (_) {
+      // Ignore sign-out errors and continue clearing the local session.
+    }
+    await SessionHelper.clearTutorId();
     if (!mounted) {
       return;
     }

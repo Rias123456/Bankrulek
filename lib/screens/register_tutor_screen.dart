@@ -2,12 +2,12 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../services/tutor_service.dart';
 import '../widgets/primary_button.dart';
+import '../utils/session.dart';
 
 /// หน้าสำหรับสมัครติวเตอร์ใหม่
 class RegisterTutorScreen extends StatefulWidget {
@@ -83,8 +83,10 @@ class _RegisterTutorScreenState extends State<RegisterTutorScreen> {
         );
       }
 
+      final String tutorId = user.uid;
+
       await _tutorService.addTutor(
-        tutorId: user.uid,
+        tutorId: tutorId,
         fullName: '',
         nickname: _nicknameController.text.trim(),
         phone: _phoneController.text.trim(),
@@ -98,6 +100,8 @@ class _RegisterTutorScreenState extends State<RegisterTutorScreen> {
         scheduleSerialized: '',
         profileImageBytes: _profileImageBytes,
       );
+
+      await SessionHelper.saveTutorId(tutorId);
 
       if (!mounted) return;
       Navigator.pushNamedAndRemoveUntil(

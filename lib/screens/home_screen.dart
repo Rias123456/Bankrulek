@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+
+import '../utils/session.dart';
 
 /// หน้าหลักของระบบ / Main entry screen for the portal
 class HomeScreen extends StatefulWidget {
@@ -25,8 +26,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     _hasAttemptedNavigation = true;
     try {
-      final SharedPreferences prefs = await SharedPreferences.getInstance();
-      final String? tutorId = prefs.getString('tutorId');
+      final String? tutorId = await SessionHelper.getTutorId();
       if (tutorId != null && tutorId.isNotEmpty) {
         if (!mounted) {
           return;
