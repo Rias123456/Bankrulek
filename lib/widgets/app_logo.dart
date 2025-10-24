@@ -8,11 +8,7 @@ class AppLogo extends StatelessWidget {
   /// ความกว้างของรูปโลโก้ / Desired width for the logo
   final double width;
 
-  const AppLogo({
-    super.key,
-    this.height = 40,
-    this.width = 40,
-  });
+  const AppLogo({super.key, this.height = 40, this.width = 40});
 
   @override
   Widget build(BuildContext context) {

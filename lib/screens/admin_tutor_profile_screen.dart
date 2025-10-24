@@ -2,8 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 
-import '../providers/auth_provider.dart';
-
+import '../models/tutor.dart';
 class AdminTutorProfileScreen extends StatelessWidget {
   const AdminTutorProfileScreen({super.key, required this.tutor});
 

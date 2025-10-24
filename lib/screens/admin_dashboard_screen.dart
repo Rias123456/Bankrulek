@@ -1,11 +1,11 @@
 import 'dart:convert';
 import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-
-import '../providers/auth_provider.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import '../models/tutor.dart';
+import '../services/tutor_service.dart';
 import 'home_screen.dart';
+
 
 /// หน้าควบคุมสำหรับแอดมิน
 class AdminDashboardScreen extends StatefulWidget {
@@ -280,27 +280,27 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                       ),
                     ),
                     const SizedBox(height: 12),
-                    DropdownButtonFormField<String>(
-                      value: selectedStatus,
-                      decoration: const InputDecoration(
-                        labelText: 'สถานะ',
-                        border: OutlineInputBorder(),
-                      ),
-                      items: statusOptions
-                          .map(
-                            (String status) => DropdownMenuItem<String>(
-                              value: status,
-                              child: Text(status),
-                            ),
-                          )
-                          .toList(),
-                      onChanged: (String? value) {
-                        if (value == null) {
-                          return;
-                        }
-                        setDialogState(() => selectedStatus = value);
-                      },
-                    ),
+                   DropdownButtonFormField<String>(
+  value: selectedStatus,
+  decoration: const InputDecoration(
+    labelText: 'สถานะ',
+    border: OutlineInputBorder(),
+  ),
+  items: statusOptions
+      .map(
+        (String status) => DropdownMenuItem<String>(
+          value: status,
+          child: Text(status),
+        ),
+      )
+      .toList(),
+  onChanged: (String? newValue) {
+    if (newValue == null) {
+      return;
+    }
+    setDialogState(() => selectedStatus = newValue);
+  },
+),
                     const SizedBox(height: 12),
                     TextField(
                       controller: travelDurationController,
@@ -319,77 +319,73 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                   child: const Text('ยกเลิก'),
                 ),
                 FilledButton(
-                  onPressed: isSaving
-                      ? null
-                      : () async {
-                          final String nickname = nicknameController.text.trim();
-                          final String phoneNumber = phoneController.text.trim();
-                          final String lineId = lineIdController.text.trim();
-                          final String email = emailController.text.trim();
-                          final String password = passwordController.text.trim();
-                          final String travelDuration = travelDurationController.text.trim();
-                          if (nickname.isEmpty || phoneNumber.isEmpty || lineId.isEmpty || email.isEmpty || password.isEmpty) {
-                            ScaffoldMessenger.of(this.context).showSnackBar(
-                              const SnackBar(
-                                content: Text('กรุณากรอกข้อมูลให้ครบถ้วน'),
-                              ),
-                            );
-                            return;
-                          }
-                          if (!email.contains('@')) {
-                            ScaffoldMessenger.of(this.context).showSnackBar(
-                              const SnackBar(
-                                content: Text('รูปแบบอีเมลไม่ถูกต้อง'),
-                              ),
-                            );
-                            return;
-                          }
-                          if (travelDuration.isEmpty) {
-                            ScaffoldMessenger.of(this.context).showSnackBar(
-                              const SnackBar(
-                                content: Text('กรุณาระบุระยะเวลาเดินทาง'),
-                              ),
-                            );
-                            return;
-                          }
-                          setDialogState(() => isSaving = true);
-                          final AuthProvider authProvider = this.context.read<AuthProvider>();
-                          final Tutor updatedTutor = tutor.copyWith(
-                            nickname: nickname,
-                            phoneNumber: phoneNumber,
-                            lineId: lineId,
-                            email: email,
-                            password: password,
-                            status: selectedStatus,
-                            travelDuration: travelDuration,
-                          );
-                          final String? error = await authProvider.updateTutor(
-                            originalEmail: tutor.email,
-                            updatedTutor: updatedTutor,
-                          );
-                          if (!mounted) {
-                            return;
-                          }
-                          if (error != null) {
-                            setDialogState(() => isSaving = false);
-                            ScaffoldMessenger.of(this.context).showSnackBar(
-                              SnackBar(content: Text(error)),
-                            );
-                            return;
-                          }
-                          Navigator.of(dialogContext).pop();
-                          ScaffoldMessenger.of(this.context).showSnackBar(
-                            const SnackBar(content: Text('บันทึกข้อมูลสำเร็จ')), 
-                          );
-                        },
-                  child: isSaving
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Text('บันทึก'),
-                ),
+  onPressed: isSaving
+      ? null
+      : () async {
+          final String nickname = nicknameController.text.trim();
+          final String phoneNumber = phoneController.text.trim();
+          final String lineId = lineIdController.text.trim();
+          final String email = emailController.text.trim();
+          final String password = passwordController.text.trim();
+          final String travelDuration = travelDurationController.text.trim();
+
+          if (nickname.isEmpty || phoneNumber.isEmpty || lineId.isEmpty || email.isEmpty || password.isEmpty) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('กรุณากรอกข้อมูลให้ครบถ้วน')),
+            );
+            return;
+          }
+          if (!email.contains('@')) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('รูปแบบอีเมลไม่ถูกต้อง')),
+            );
+            return;
+          }
+          if (travelDuration.isEmpty) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('กรุณาระบุระยะเวลาเดินทาง')),
+            );
+            return;
+          }
+
+          setDialogState(() => isSaving = true);
+          final TutorService tutorService = TutorService();
+
+          try {
+            await tutorService.updateTutor(
+              tutorId: tutor.id,
+              data: {
+                'nickname': nickname,
+                'phone': phoneNumber,
+                'lineId': lineId,
+                'email': email,
+                'password': password,
+                'currentStatus': selectedStatus,
+                'travelTime': travelDuration,
+              },
+            );
+
+            if (!mounted) return;
+            Navigator.of(dialogContext).pop();
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('บันทึกข้อมูลสำเร็จ')),
+            );
+          } catch (error) {
+            setDialogState(() => isSaving = false);
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Error: $error')),
+            );
+          }
+        },
+  child: isSaving
+      ? const SizedBox(
+          width: 20,
+          height: 20,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        )
+      : const Text('บันทึก'),
+),
+
               ],
             );
           },
@@ -405,18 +401,17 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     travelDurationController.dispose();
   }
 
-  Future<void> _handleLogout() async {
-    await context.read<AuthProvider>().logout();
-    if (!mounted) {
-      return;
-    }
-    Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute<void>(
-        builder: (BuildContext context) => const HomeScreen(),
-      ),
-      (Route<dynamic> route) => false,
-    );
-  }
+Future<void> _handleLogout() async {
+  final TutorService tutorService = TutorService();
+  await tutorService.logout();
+  if (!mounted) return;
+  Navigator.of(context).pushAndRemoveUntil(
+    MaterialPageRoute<void>(
+      builder: (BuildContext context) => const HomeScreen(),
+    ),
+    (Route<dynamic> route) => false,
+  );
+}
 
   Future<void> _showDeleteTutorDialog(Tutor tutor) async {
     bool isDeleting = false;
@@ -442,8 +437,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                       ? null
                       : () async {
                           setDialogState(() => isDeleting = true);
-                          final bool success = await this.context.read<AuthProvider>().deleteTutor(tutor.email);
-                          if (!mounted) {
+final TutorService tutorService = TutorService();
+final bool success = await tutorService.deleteTutor(
+  tutorId: tutor.id,
+  email: tutor.email,
+  password: tutor.password,
+);                          if (!mounted) {
                             return;
                           }
                           if (!success) {
@@ -470,9 +469,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       },
     );
     if (deleted == true && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('ลบ ${tutor.nickname} เรียบร้อย')),
-      );
+ScaffoldMessenger.of(context).showSnackBar(
+  const SnackBar(content: Text('ลบผู้ใช้เรียบร้อย')),
+);
+
+
+
     }
   }
 
@@ -511,25 +513,28 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     );
   }
 
-  Future<void> _updateTutorStatus(Tutor tutor, String newStatus) async {
-    final AuthProvider authProvider = context.read<AuthProvider>();
-    final String? error = await authProvider.updateTutor(
-      originalEmail: tutor.email,
-      updatedTutor: tutor.copyWith(status: newStatus),
+Future<void> _updateTutorStatus(Tutor tutor, String newStatus) async {
+  final TutorService tutorService = TutorService();
+  try {
+    await tutorService.updateTutor(
+      tutorId: tutor.id,
+      data: {
+        'currentStatus': newStatus,
+      },
     );
-    if (!mounted) {
-      return;
-    }
-    if (error != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error)),
-      );
-      return;
-    }
+
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('อัปเดตสถานะเรียบร้อย: $newStatus')),
     );
+  } catch (error) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Error: $error')),
+    );
   }
+}
+
 
   Future<void> _showTravelDurationEditor(Tutor tutor) async {
     final TextEditingController controller = TextEditingController(text: tutor.travelDuration);
@@ -577,45 +582,47 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                       const SizedBox(width: 12),
                       Expanded(
                         child: FilledButton(
-                          onPressed: isSaving
-                              ? null
-                              : () async {
-                                  final String value = controller.text.trim();
-                                  if (value.isEmpty) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(content: Text('กรุณาระบุระยะเวลาเดินทาง')),
-                                    );
-                                    return;
-                                  }
-                                  setState(() => isSaving = true);
-                                  final AuthProvider authProvider = this.context.read<AuthProvider>();
-                                  final String? error = await authProvider.updateTutor(
-                                    originalEmail: tutor.email,
-                                    updatedTutor: tutor.copyWith(travelDuration: value),
-                                  );
-                                  if (!mounted) {
-                                    return;
-                                  }
-                                  if (error != null) {
-                                    setState(() => isSaving = false);
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(content: Text(error)),
-                                    );
-                                    return;
-                                  }
-                                  Navigator.of(sheetContext).pop();
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(content: Text('อัปเดตระยะเวลาเดินทางเรียบร้อย: $value')),
-                                  );
-                                },
-                          child: isSaving
-                              ? const SizedBox(
-                                  height: 20,
-                                  width: 20,
-                                  child: CircularProgressIndicator(strokeWidth: 2),
-                                )
-                              : const Text('บันทึก'),
-                        ),
+  onPressed: isSaving
+      ? null
+      : () async {
+          final String value = controller.text.trim();
+          if (value.isEmpty) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('กรุณาระบุระยะเวลาเดินทาง')),
+            );
+            return;
+          }
+
+          setState(() => isSaving = true);
+          final TutorService tutorService = TutorService();
+
+          try {
+            await tutorService.updateTutor(
+              tutorId: tutor.id,
+              data: {'travelTime': value},
+            );
+
+            if (!mounted) return;
+            Navigator.of(sheetContext).pop();
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('อัปเดตระยะเวลาเดินทางเรียบร้อย: $value')),
+            );
+          } catch (error) {
+            setState(() => isSaving = false);
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Error: $error')),
+            );
+          }
+        },
+  child: isSaving
+      ? const SizedBox(
+          height: 20,
+          width: 20,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        )
+      : const Text('บันทึก'),
+),
+
                       ),
                     ],
                   ),
@@ -630,85 +637,76 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     controller.dispose();
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('แดชบอร์ดแอดมิน'),
-      ),
-      body: Consumer<AuthProvider>(
-        builder: (BuildContext context, AuthProvider authProvider, _) {
-          if (authProvider.isLoading) {
-            return const Center(
-              child: CircularProgressIndicator(),
-            );
-          }
-          if (!authProvider.isAdminLoggedIn) {
-            return Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text(
-                    'กรุณาล็อกอินก่อน',
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 16),
-                  FilledButton(
-                    onPressed: () => Navigator.pushReplacementNamed(
-                      context,
-                      '/admin-login',
-                    ),
-                    child: const Text('ไปหน้าแอดมิน'),
-                  ),
-                ],
+@override
+Widget build(BuildContext context) {
+  final TutorService tutorService = TutorService();
+  
+  return Scaffold(
+    appBar: AppBar(
+      title: const Text('แดชบอร์ดแอดมิน'),
+    ),
+    body: StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('tutors')
+          .orderBy('createdAt', descending: true)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        
+        if (snapshot.hasError) {
+          return Center(child: Text('เกิดข้อผิดพลาด: ${snapshot.error}'));
+        }
+        
+        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+          return const Center(child: Text('ยังไม่มีติวเตอร์ในระบบ'));
+        }
+        
+        final List<Tutor> tutors = snapshot.data!.docs
+            .map((doc) => Tutor.fromFirestore(doc))
+            .toList();
+        
+        final List<Tutor> sortedTutors = List<Tutor>.from(tutors)
+          ..sort((a, b) => a.nickname.toLowerCase().compareTo(b.nickname.toLowerCase()));
+        
+        final List<Tutor> filteredTutors = sortedTutors.where(_matchesFilters).toList();
+        
+        return CustomScrollView(
+          slivers: [
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+              sliver: SliverList(
+                delegate: SliverChildListDelegate(
+                  <Widget>[
+                    _buildSubjectFilterSection(),
+                    const SizedBox(height: 16),
+                    _buildScheduleFilterCard(),
+                    const SizedBox(height: 16),
+                    _buildFilterSummary(filteredTutors.length, sortedTutors.length),
+                    const SizedBox(height: 8),
+                  ],
+                ),
               ),
-            );
-          }
-          final List<Tutor> tutors = authProvider.tutors;
-          if (tutors.isEmpty) {
-            return const Center(
-              child: Text('ยังไม่มีติวเตอร์ในระบบ'),
-            );
-          }
-          final List<Tutor> sortedTutors = List<Tutor>.from(tutors)
-            ..sort((Tutor a, Tutor b) => a.nickname.toLowerCase().compareTo(b.nickname.toLowerCase()));
-          final List<Tutor> filteredTutors = sortedTutors.where(_matchesFilters).toList();
-
-          return CustomScrollView(
-            slivers: [
+            ),
+            if (filteredTutors.isEmpty)
               SliverPadding(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-                sliver: SliverList(
-                  delegate: SliverChildListDelegate(
-                    <Widget>[
-                      _buildSubjectFilterSection(),
-                      const SizedBox(height: 16),
-                      _buildScheduleFilterCard(),
-                      const SizedBox(height: 16),
-                      _buildFilterSummary(filteredTutors.length, sortedTutors.length),
-                      const SizedBox(height: 8),
-                    ],
-                  ),
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                sliver: SliverToBoxAdapter(
+                  child: _buildEmptyTutorMessage(),
                 ),
+              )
+            else
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                sliver: _buildTutorList(filteredTutors),
               ),
-              if (filteredTutors.isEmpty)
-                SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                  sliver: SliverToBoxAdapter(
-                    child: _buildEmptyTutorMessage(),
-                  ),
-                )
-              else
-                SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                  sliver: _buildTutorList(filteredTutors),
-                ),
-            ],
-          );
-        },
-      ),
-    );
-  }
+          ],
+        );
+      },
+    ),
+  );
+}
 
 Widget _buildSubjectFilterSection() {
   final ThemeData theme = Theme.of(context);
@@ -1194,9 +1192,11 @@ Widget _buildSubjectFilterSection() {
       color: Theme.of(context).colorScheme.surface,
       child: InkWell(
         onTap: () {
-          context.read<AuthProvider>().impersonateTutor(tutor);
-          Navigator.of(context).pushNamed('/login-success');
-        },
+  Navigator.of(context).pushNamed(
+    '/admin-tutor-profile',
+    arguments: tutor,
+  );
+},
         borderRadius: borderRadius,
         child: Padding(
           padding: const EdgeInsets.all(12),
